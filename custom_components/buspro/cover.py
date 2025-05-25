@@ -53,7 +53,7 @@ async def async_setup_platform(hass, config, async_add_entites, discovery_info=N
         _LOGGER.debug("Adding cover '{}' with address {} and channel number {} and is adjustable {}".format(name, device_address,
                                                                                         channel_number, _adjustable))
 
-        cover = Cover(hdl, device_address, channel_number, name, )
+        cover = Cover(hdl, device_address, channel_number, name, opening_time )
 
         devices.append(BusproCover(hass, cover))
 
