@@ -83,6 +83,10 @@ class BusproLight(LightEntity):
         self._device = device
         self._running_time = running_time
         self._dimmable = dimmable
+        
+        # <--- OPTIMISTIC MODE: Initialize the override variable
+        self._optimistic_brightness = None 
+
         if self._dimmable:
             self._attr_color_mode = ColorMode.BRIGHTNESS
             self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
@@ -90,7 +94,7 @@ class BusproLight(LightEntity):
             self._attr_color_mode = ColorMode.ONOFF
             self._attr_supported_color_modes = {ColorMode.ONOFF}
         self.async_register_callbacks()
-         # Set the polling interval (e.g., every 30 seconds)
+         # Set the polling interval (e.g., every 60 minutes)
         self._polling_interval = timedelta(minutes=60)
         event.async_track_time_interval(hass, self.async_update, self._polling_interval)
 
@@ -99,9 +103,22 @@ class BusproLight(LightEntity):
     def async_register_callbacks(self):
         """Register callbacks to update hass after device was changed."""
 
-        # noinspection PyUnusedLocal
         async def after_update_callback(device):
             """Call after device was updated."""
+            
+            if self._optimistic_brightness is not None:
+                if self._dimmable:
+                    # Check if hardware reached target brightness
+                    target_hdl = int(self._optimistic_brightness / 255 * 100)
+                    if device.current_brightness == target_hdl:
+                        self._optimistic_brightness = None
+                else:
+                    # Check ON/OFF for non-dimmable
+                    hardware_is_on = device.is_on
+                    target_is_on = (self._optimistic_brightness > 0)
+                    if hardware_is_on == target_is_on:
+                        self._optimistic_brightness = None
+
             self.async_write_ha_state()
 
         self._device.register_device_updated_cb(after_update_callback)
@@ -109,15 +126,14 @@ class BusproLight(LightEntity):
     @property
     def should_poll(self):
         """No polling needed within Buspro."""
-        return True
+        return False # Changed to False because we use callbacks, but keeping True is fine too if needed.
 
     async def async_update(self, *args):
-        """Fetch new state data for this light."""
-        await self.async_read_status()
-
-    #async def async_update(self):
-     #   """Fetch new state data for this light."""
-      #  await self.async_read_status()
+        """Fetch new state data for this light asynchronously."""
+        # FIRE AND FORGET: Ask HDL for state, but return instantly.
+        # When HDL responds, pybuspro's telegram callback will automatically
+        # trigger after_update_callback and refresh the UI later.
+        self.hass.async_create_task(self._device.read_status())
 
     @property
     def name(self):
@@ -132,27 +148,52 @@ class BusproLight(LightEntity):
     @property
     def brightness(self):
         """Return the brightness of the light."""
+        # <--- OPTIMISTIC MODE: Return fake brightness if pending
+        if self._optimistic_brightness is not None:
+            return self._optimistic_brightness
+
+        # Standard Logic
+        if self._device.current_brightness is None:
+            return 0
         brightness = self._device.current_brightness / 100 * 255
         return brightness
 
     @property
     def is_on(self):
         """Return true if light is on."""
+        # <--- OPTIMISTIC MODE: Return fake state if pending
+        if self._optimistic_brightness is not None:
+            return self._optimistic_brightness > 0
+            
         return self._device.is_on
 
     async def async_turn_on(self, **kwargs):
         """Instruct the light to turn on."""
-        brightness = int(kwargs.get(ATTR_BRIGHTNESS, 255) / 255 * 100)
+        target_ha_brightness = kwargs.get(ATTR_BRIGHTNESS, 255)
+        hdl_brightness = int(target_ha_brightness / 255 * 100)
 
-        if not self.is_on and self._device.previous_brightness is not None and brightness == 100:
-            brightness = self._device.previous_brightness
+        if not self.is_on and self._device.previous_brightness is not None and hdl_brightness == 100:
+            hdl_brightness = self._device.previous_brightness
 
-        await self._device.set_brightness(brightness, self._running_time)
+        # 1. Update HA instantly so Google Home sees the change immediately
+        self._optimistic_brightness = target_ha_brightness
+        self.async_write_ha_state()
+
+        # 2. FIRE AND FORGET: Send command to HDL in the background
+        self.hass.async_create_task(
+            self._device.set_brightness(hdl_brightness, self._running_time)
+        )
 
     async def async_turn_off(self, **kwargs):
         """Instruct the light to turn off."""
-        await self._device.set_off(self._running_time)
+        # 1. Update HA instantly so Google Home sees the change immediately
+        self._optimistic_brightness = 0
+        self.async_write_ha_state()
 
+        # 2. FIRE AND FORGET: Send command to HDL in the background
+        self.hass.async_create_task(
+            self._device.set_off(self._running_time)
+        )
     @property
     def unique_id(self):
         """Return the unique id."""
