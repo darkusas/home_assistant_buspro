@@ -19,6 +19,7 @@ from homeassistant.const import (
     CONF_ADDRESS, 
     CONF_TYPE, 
     CONF_DEVICE_CLASS, 
+    CONF_ICON,
     CONF_SCAN_INTERVAL,
 )
 from homeassistant.core import callback
@@ -69,6 +70,9 @@ def _parse_channel_address(address: str) -> tuple[tuple[int, int], int]:
 VIRTUAL_DEVICE_SCHEMA = vol.Schema({
     vol.Required(CONF_NAME): cv.string,
     vol.Optional(CONF_INITIAL_STATE, default=DEFAULT_VIRTUAL_INITIAL_STATE): cv.boolean,
+    vol.Optional(CONF_TYPE, default=CONF_SINGLE_CHANNEL): vol.In(SENSOR_TYPES),
+    vol.Optional(CONF_DEVICE_CLASS): cv.string,
+    vol.Optional(CONF_ICON): cv.icon,
 })
 
 def _validate_platform_config(config):
@@ -151,6 +155,9 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 
     for address, virtual_device_config in config[CONF_VIRTUAL_DEVICES].items():
         name = virtual_device_config[CONF_NAME]
+        sensor_type = virtual_device_config[CONF_TYPE]
+        device_class = virtual_device_config.get(CONF_DEVICE_CLASS)
+        icon = virtual_device_config.get(CONF_ICON)
         device_address, channel_number = _parse_channel_address(address)
         initial_channel_value = (
             DEFAULT_VIRTUAL_CHANNEL_ON_VALUE
@@ -159,10 +166,12 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         )
 
         _LOGGER.debug(
-            "Adding virtual binary sensor '%s' with address %s and channel number %s",
+            "Adding virtual binary sensor '%s' with address %s, channel number %s, sensor type '%s', device class '%s'",
             name,
             device_address,
             channel_number,
+            sensor_type,
+            device_class,
         )
 
         virtual_sensor = VirtualSingleChannel(
@@ -173,7 +182,17 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
             # VirtualSingleChannel stores the raw HDL single-channel level (0-100).
             initial_brightness=initial_channel_value,
         )
-        devices.append(BusproBinarySensor(hass, virtual_sensor, CONF_SINGLE_CHANNEL, None, 0))
+        devices.append(
+            BusproBinarySensor(
+                hass,
+                virtual_sensor,
+                sensor_type,
+                device_class,
+                0,
+                icon=icon,
+                is_virtual=True,
+            )
+        )
 
     async_add_entities(devices)
 
@@ -182,10 +201,12 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 class BusproBinarySensor(BinarySensorEntity):
     """Representation of a Buspro switch."""
 
-    def __init__(self, hass, device, sensor_type, device_class, scan_interval):
+    def __init__(self, hass, device, sensor_type, device_class, scan_interval, icon=None, is_virtual=False):
         self._hass = hass
         self._device = device
         self._device_class = device_class
+        self._icon = icon
+        self._is_virtual = is_virtual
         self._sensor_type = sensor_type
         
         self._should_poll = False
@@ -211,7 +232,9 @@ class BusproBinarySensor(BinarySensorEntity):
         return self._should_poll
 
     async def async_update(self, *args):
-        if self._sensor_type == CONF_UNIVERSAL_SWITCH or self._sensor_type == CONF_MOTION:
+        if not self._is_virtual and (
+            self._sensor_type == CONF_UNIVERSAL_SWITCH or self._sensor_type == CONF_MOTION
+        ):
             await self._device.read_sensor_status()
 
     @property
@@ -230,6 +253,11 @@ class BusproBinarySensor(BinarySensorEntity):
         return self._device_class
 
     @property
+    def icon(self):
+        """Return the configured icon."""
+        return self._icon
+
+    @property
     def unique_id(self):
         """Return the unique id."""
         return self._device.device_identifier
@@ -237,6 +265,8 @@ class BusproBinarySensor(BinarySensorEntity):
     @property
     def is_on(self):
         """Return true if the binary sensor is on."""
+        if self._is_virtual:
+            return self._device.single_channel_is_on
         if self._sensor_type == CONF_MOTION:
             # _LOGGER.info("----> {}".format(self._device.movement))
             return self._device.movement

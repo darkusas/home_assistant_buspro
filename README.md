@@ -178,6 +178,16 @@ binary_sensor:
   + **X.X.X** _(Required)_: Virtual address in format `<subnet ID>.<device ID>.<channel number>`
     + **name** _(string) (Required)_: The name of the device in Home Assistant
     + **initial_state** _(boolean) (Optional)_: Initial binary sensor state. Default is False
+    + **type** _(string) (Optional)_: Virtual binary sensor type. Default is `single_channel`
+      + Available sensors:
+        + motion
+        + dry_contact_1
+        + dry_contact_2
+        + universal_switch
+        + single_channel
+        + dry_contact
+    + **device_class** _(string) (Optional)_: Home Assistant binary sensor device class, e.g. `motion`
+    + **icon** _(string) (Optional)_: Custom Home Assistant icon, e.g. `mdi:motion-sensor`
 
 Example:
 ```yaml
@@ -187,6 +197,9 @@ binary_sensor:
       1.252.1:
         name: Virtual Occupancy
         initial_state: false
+        type: motion
+        device_class: motion
+        icon: mdi:motion-sensor
 ```
 
 Older Devices like CMS-PIR are supported via PIR
