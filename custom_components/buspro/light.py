@@ -19,6 +19,7 @@ from homeassistant.const import (CONF_NAME, CONF_DEVICES)
 from homeassistant.core import callback
 
 from ..buspro import DATA_BUSPRO
+from .address_validation import validate_buspro_address_str
 from datetime import timedelta
 import homeassistant.helpers.event as event
 
@@ -32,6 +33,18 @@ DEFAULT_VIRTUAL_DIMMABLE = True
 DEFAULT_VIRTUAL_INITIAL_BRIGHTNESS = 0
 BRIGHTNESS_LEVEL_VALIDATOR = vol.All(vol.Coerce(int), vol.Range(min=0, max=100))
 
+
+def _parse_channel_address(address: str) -> tuple[tuple[int, int], int]:
+    """Parse a Buspro channel address in format subnet.device.channel."""
+    validated_address = validate_buspro_address_str(address)
+    address_parts = validated_address.split(".")
+    if len(address_parts) != 3:
+        raise ValueError(
+            f"Invalid Buspro channel address '{address}': expected format "
+            "'subnet.device.channel' with numeric values"
+        )
+    return (int(address_parts[0]), int(address_parts[1])), int(address_parts[2])
+
 DEVICE_SCHEMA = vol.Schema({
     vol.Optional("running_time", default=DEFAULT_DEVICE_RUNNING_TIME): cv.positive_int,
     vol.Optional("dimmable", default=DEFAULT_DIMMABLE): cv.boolean,
@@ -40,9 +53,6 @@ DEVICE_SCHEMA = vol.Schema({
 
 VIRTUAL_DEVICE_SCHEMA = vol.Schema({
     vol.Required(CONF_NAME): cv.string,
-    vol.Required("subnet_id"): cv.positive_int,
-    vol.Required("device_id"): cv.positive_int,
-    vol.Required("channel_number"): cv.positive_int,
     vol.Optional("dimmable", default=DEFAULT_VIRTUAL_DIMMABLE): cv.boolean,
     vol.Optional("initial_brightness", default=DEFAULT_VIRTUAL_INITIAL_BRIGHTNESS): BRIGHTNESS_LEVEL_VALIDATOR,
 })
@@ -50,7 +60,7 @@ VIRTUAL_DEVICE_SCHEMA = vol.Schema({
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional("running_time", default=DEFAULT_PLATFORM_RUNNING_TIME): cv.positive_int,
     vol.Optional(CONF_DEVICES, default={}): {cv.string: DEVICE_SCHEMA},
-    vol.Optional("virtual_devices", default=[]): vol.All(cv.ensure_list, [VIRTUAL_DEVICE_SCHEMA]),
+    vol.Optional("virtual_devices", default={}): {validate_buspro_address_str: VIRTUAL_DEVICE_SCHEMA},
 })
 
 
@@ -75,21 +85,15 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         if dimmable:
             device_running_time = 0
 
-        address2 = address.split('.')
-        device_address = (int(address2[0]), int(address2[1]))
-        channel_number = int(address2[2])
+        device_address, channel_number = _parse_channel_address(address)
         _LOGGER.debug("Adding light '{}' with address {} and channel number {}".format(name, device_address, channel_number))
 
         light = Light(hdl, device_address, channel_number, name)
         devices.append(BusproLight(hass, light, device_running_time, dimmable))
 
-    for virtual_device_config in config["virtual_devices"]:
+    for address, virtual_device_config in config["virtual_devices"].items():
         name = virtual_device_config[CONF_NAME]
-        device_address = (
-            int(virtual_device_config["subnet_id"]),
-            int(virtual_device_config["device_id"]),
-        )
-        channel_number = int(virtual_device_config["channel_number"])
+        device_address, channel_number = _parse_channel_address(address)
         dimmable = bool(virtual_device_config["dimmable"])
         initial_brightness = int(virtual_device_config["initial_brightness"])
 
