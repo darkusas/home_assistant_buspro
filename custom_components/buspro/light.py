@@ -73,9 +73,9 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         if dimmable:
             device_running_time = 0
 
-        address2 = address.split('.')
-        device_address = (int(address2[0]), int(address2[1]))
-        channel_number = int(address2[2])
+        address_parts = address.split('.')
+        device_address = (int(address_parts[0]), int(address_parts[1]))
+        channel_number = int(address_parts[2])
         _LOGGER.debug("Adding light '{}' with address {} and channel number {}".format(name, device_address, channel_number))
 
         light = Light(hdl, device_address, channel_number, name)
@@ -83,9 +83,9 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 
     for address, virtual_device_config in config["virtual_devices"].items():
         name = virtual_device_config[CONF_NAME]
-        address2 = address.split(".")
-        device_address = (int(address2[0]), int(address2[1]))
-        channel_number = int(address2[2])
+        address_parts = address.split(".")
+        device_address = (int(address_parts[0]), int(address_parts[1]))
+        channel_number = int(address_parts[2])
         dimmable = bool(virtual_device_config["dimmable"])
         initial_brightness = int(virtual_device_config["initial_brightness"])
 
