@@ -55,7 +55,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 
 
 # noinspection PyUnusedLocal
-async def async_setup_platform(hass, config, async_add_entites, discovery_info=None):
+async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up Buspro light devices."""
     # noinspection PyUnresolvedReferences
     from .pybuspro.devices import Light
@@ -113,7 +113,7 @@ async def async_setup_platform(hass, config, async_add_entites, discovery_info=N
         )
         devices.append(BusproLight(hass, virtual_light, 0, dimmable))
 
-    async_add_entites(devices)
+    async_add_entities(devices)
     for device in devices:
         await device.async_read_status()
 

@@ -36,7 +36,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 
 
 # noinspection PyUnusedLocal
-async def async_setup_platform(hass, config, async_add_entites, discovery_info=None):
+async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up Buspro switch devices."""
     # noinspection PyUnresolvedReferences
     from .pybuspro.devices import Switch
@@ -77,7 +77,7 @@ async def async_setup_platform(hass, config, async_add_entites, discovery_info=N
         )
         devices.append(BusproSwitch(hass, virtual_switch))
 
-    async_add_entites(devices)
+    async_add_entities(devices)
 
 
 # noinspection PyAbstractClass
