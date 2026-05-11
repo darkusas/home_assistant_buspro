@@ -32,13 +32,17 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_CONF_DEVICE_CLASS = "None"
 DEFAULT_CONF_SCAN_INTERVAL = 0
 DEFAULT_CONF_DEVICE= "None"
+DEFAULT_VIRTUAL_INITIAL_STATE = False
+DEFAULT_VIRTUAL_CHANNEL_ON_VALUE = 100
 CONF_DEVICE = "device"
+CONF_INITIAL_STATE = "initial_state"
 CONF_MOTION = 'motion'
 CONF_DRY_CONTACT_1 = 'dry_contact_1'
 CONF_DRY_CONTACT_2 = 'dry_contact_2'
 CONF_UNIVERSAL_SWITCH = 'universal_switch'
 CONF_SINGLE_CHANNEL = 'single_channel'
 CONF_DRY_CONTACT = 'dry_contact'
+CONF_VIRTUAL_DEVICES = "virtual_devices"
 
 SENSOR_TYPES = {
     CONF_MOTION,
@@ -49,26 +53,55 @@ SENSOR_TYPES = {
     CONF_DRY_CONTACT,
 }
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-    vol.Required(CONF_DEVICES):
-        vol.All(cv.ensure_list, [
-            vol.All({
-                vol.Required(CONF_ADDRESS): vol.All(validate_buspro_address_str, cv.string),
-                vol.Required(CONF_NAME): cv.string,
-                vol.Required(CONF_TYPE): vol.In(SENSOR_TYPES),
-                vol.Optional(CONF_DEVICE_CLASS, default=DEFAULT_CONF_DEVICE_CLASS): cv.string,
-                vol.Optional(CONF_DEVICE, default=DEFAULT_CONF_DEVICE): cv.string,
-                vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_CONF_SCAN_INTERVAL): cv.string,
-            })
-        ])
+
+def _parse_channel_address(address: str) -> tuple[tuple[int, int], int]:
+    """Parse a Buspro channel address in format subnet.device.channel."""
+    validated_address = validate_buspro_address_str(address)
+    address_parts = validated_address.split(".")
+    if len(address_parts) != 3:
+        raise ValueError(
+            f"Invalid Buspro channel address '{address}': expected format "
+            "'subnet.device.channel' with numeric values"
+        )
+    return (int(address_parts[0]), int(address_parts[1])), int(address_parts[2])
+
+
+VIRTUAL_DEVICE_SCHEMA = vol.Schema({
+    vol.Required(CONF_NAME): cv.string,
+    vol.Optional(CONF_INITIAL_STATE, default=DEFAULT_VIRTUAL_INITIAL_STATE): cv.boolean,
 })
+
+def _validate_platform_config(config):
+    if not config[CONF_DEVICES] and not config[CONF_VIRTUAL_DEVICES]:
+        raise vol.Invalid("Configure at least one of 'devices' or 'virtual_devices'")
+    return config
+
+
+PLATFORM_SCHEMA = vol.All(
+    PLATFORM_SCHEMA.extend({
+        vol.Optional(CONF_DEVICES, default=[]):
+            vol.All(cv.ensure_list, [
+                vol.All({
+                    vol.Required(CONF_ADDRESS): vol.All(validate_buspro_address_str, cv.string),
+                    vol.Required(CONF_NAME): cv.string,
+                    vol.Required(CONF_TYPE): vol.In(SENSOR_TYPES),
+                    vol.Optional(CONF_DEVICE_CLASS, default=DEFAULT_CONF_DEVICE_CLASS): cv.string,
+                    vol.Optional(CONF_DEVICE, default=DEFAULT_CONF_DEVICE): cv.string,
+                    vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_CONF_SCAN_INTERVAL): cv.string,
+                })
+            ]),
+        vol.Optional(CONF_VIRTUAL_DEVICES, default={}): {validate_buspro_address_str: VIRTUAL_DEVICE_SCHEMA},
+    }),
+    _validate_platform_config,
+)
 
 
 # noinspection PyUnusedLocal
-async def async_setup_platform(hass, config, async_add_entites, discovery_info=None):
+async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up Buspro switch devices."""
     # noinspection PyUnresolvedReferences
     from .pybuspro.devices import Sensor
+    from .pybuspro.devices import VirtualSingleChannel
 
     hdl = hass.data[DATA_BUSPRO].hdl
     devices = []
@@ -116,7 +149,33 @@ async def async_setup_platform(hass, config, async_add_entites, discovery_info=N
 
         devices.append(BusproBinarySensor(hass, sensor, sensor_type, device_class, interval))
 
-    async_add_entites(devices)
+    for address, virtual_device_config in config[CONF_VIRTUAL_DEVICES].items():
+        name = virtual_device_config[CONF_NAME]
+        device_address, channel_number = _parse_channel_address(address)
+        initial_channel_value = (
+            DEFAULT_VIRTUAL_CHANNEL_ON_VALUE
+            if bool(virtual_device_config[CONF_INITIAL_STATE])
+            else 0
+        )
+
+        _LOGGER.debug(
+            "Adding virtual binary sensor '%s' with address %s and channel number %s",
+            name,
+            device_address,
+            channel_number,
+        )
+
+        virtual_sensor = VirtualSingleChannel(
+            hdl,
+            device_address,
+            channel_number,
+            name,
+            # VirtualSingleChannel stores the raw HDL single-channel level (0-100).
+            initial_brightness=initial_channel_value,
+        )
+        devices.append(BusproBinarySensor(hass, virtual_sensor, CONF_SINGLE_CHANNEL, None, 0))
+
+    async_add_entities(devices)
 
 
 # noinspection PyAbstractClass
