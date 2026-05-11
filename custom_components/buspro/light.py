@@ -94,6 +94,11 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         initial_brightness = int(virtual_device_config["initial_brightness"])
 
         if not dimmable and initial_brightness > 0:
+            _LOGGER.debug(
+                "Virtual device '%s' is configured as non-dimmable, mapping initial_brightness=%s to ON state",
+                name,
+                initial_brightness,
+            )
             initial_brightness = 100
 
         _LOGGER.debug(

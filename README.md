@@ -30,7 +30,7 @@ light:
         dimmable: False
 ```
 + **running_time** _(int) (Optional)_: Default running time in seconds for all devices. Running time is 0 seconds if not set.
-+ **devices** _(Optional)_: A list of physical devices to set up
++ **devices** _(Optional)_: A list of physical devices to set up. Configure at least one of `devices` or `virtual_devices`
   + **X.X.X** _(Required)_: The address of the device on the format `<subnet ID>.<device ID>.<channel number>`
     + **name** _(string) (Required)_: The name of the device
     + **running_time** _(int) (Optional)_: The running time in seconds for the device. If omitted, the default running time for all devices is used.
@@ -73,7 +73,7 @@ switch:
       1.89.2:
         name: Front Door Switch
 ```
-+ **devices** _(Optional)_: A list of physical devices to set up
++ **devices** _(Optional)_: A list of physical devices to set up. Configure at least one of `devices` or `virtual_devices`
   + **X.X.X** _(Required)_: The address of the device on the format `<subnet ID>.<device ID>.<channel number>`
     + **name** _(string) (Required)_: The name of the device
 + **virtual_devices** _(Optional)_: List of virtual single-channel HDL relay devices

@@ -68,7 +68,7 @@ class VirtualSingleChannel(Device):
         await self._send_telegram(telegram)
 
     def _build_channel_status_list(self):
-        channel_total = max(1, self._channel)
+        channel_total = self._channel
         channel_statuses = [0] * channel_total
         channel_statuses[self._channel - 1] = self._brightness
         return channel_total, channel_statuses
