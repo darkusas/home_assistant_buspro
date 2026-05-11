@@ -85,7 +85,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 
 
 # noinspection PyUnusedLocal
-async def async_setup_platform(hass, config, async_add_entites, discovery_info=None):
+async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up Buspro switch devices."""
     # noinspection PyUnresolvedReferences
     from .pybuspro.devices import Sensor
@@ -140,7 +140,7 @@ async def async_setup_platform(hass, config, async_add_entites, discovery_info=N
     for address, virtual_device_config in config["virtual_devices"].items():
         name = virtual_device_config[CONF_NAME]
         device_address, channel_number = _parse_channel_address(address)
-        initial_brightness = 100 if bool(virtual_device_config["initial_state"]) else 0
+        initial_channel_value = 100 if bool(virtual_device_config["initial_state"]) else 0
 
         _LOGGER.debug(
             "Adding virtual binary sensor '%s' with address %s and channel number %s",
@@ -154,11 +154,11 @@ async def async_setup_platform(hass, config, async_add_entites, discovery_info=N
             device_address,
             channel_number,
             name,
-            initial_brightness=initial_brightness,
+            initial_brightness=initial_channel_value,
         )
         devices.append(BusproBinarySensor(hass, virtual_sensor, CONF_SINGLE_CHANNEL, None, 0))
 
-    async_add_entites(devices)
+    async_add_entities(devices)
 
 
 # noinspection PyAbstractClass
