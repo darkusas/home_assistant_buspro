@@ -34,9 +34,11 @@ DEFAULT_VIRTUAL_INITIAL_BRIGHTNESS = 0
 BRIGHTNESS_LEVEL_VALIDATOR = vol.All(vol.Coerce(int), vol.Range(min=0, max=100))
 
 
-def _parse_channel_address(address: str):
+def _parse_channel_address(address: str) -> tuple[tuple[int, int], int]:
     """Parse a Buspro channel address in format subnet.device.channel."""
     address_parts = address.split(".")
+    if len(address_parts) != 3 or any(not part.isdigit() for part in address_parts):
+        raise ValueError(f"Invalid Buspro channel address: {address}")
     return (int(address_parts[0]), int(address_parts[1])), int(address_parts[2])
 
 DEVICE_SCHEMA = vol.Schema({
