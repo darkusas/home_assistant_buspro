@@ -30,11 +30,35 @@ light:
         dimmable: False
 ```
 + **running_time** _(int) (Optional)_: Default running time in seconds for all devices. Running time is 0 seconds if not set.
-+ **devices** _(Required)_: A list of devices to set up
++ **devices** _(Optional)_: A list of physical devices to set up
   + **X.X.X** _(Required)_: The address of the device on the format `<subnet ID>.<device ID>.<channel number>`
     + **name** _(string) (Required)_: The name of the device
     + **running_time** _(int) (Optional)_: The running time in seconds for the device. If omitted, the default running time for all devices is used.
     + **dimmable** _(boolean) (Optional)_: Is the device dimmable? Default is True. 
++ **virtual_devices** _(Optional)_: List of virtual single-channel HDL dimmer/relay devices exposed on the HDL bus
+  + **name** _(string) (Required)_: The name of the device in Home Assistant
+  + **subnet_id** _(int) (Required)_: HDL subnet ID of the virtual device
+  + **device_id** _(int) (Required)_: HDL device ID of the virtual device
+  + **channel_number** _(int) (Required)_: HDL channel number
+  + **dimmable** _(boolean) (Optional)_: If False, the virtual device acts as relay (on/off only). Default is True
+  + **initial_brightness** _(int) (Optional)_: Initial virtual channel level 0-100. Default is 0
+
+Example:
+```yaml
+light:
+  - platform: buspro
+    virtual_devices:
+      - name: Virtual HDL Dimmer
+        subnet_id: 1
+        device_id: 250
+        channel_number: 1
+        dimmable: true
+      - name: Virtual HDL Relay
+        subnet_id: 1
+        device_id: 251
+        channel_number: 1
+        dimmable: false
+```
 
 #### Switch platform
 
@@ -49,9 +73,15 @@ switch:
       1.89.2:
         name: Front Door Switch
 ```
-+ **devices** _(Required)_: A list of devices to set up
++ **devices** _(Optional)_: A list of physical devices to set up
   + **X.X.X** _(Required)_: The address of the device on the format `<subnet ID>.<device ID>.<channel number>`
     + **name** _(string) (Required)_: The name of the device
++ **virtual_devices** _(Optional)_: List of virtual single-channel HDL relay devices
+  + **name** _(string) (Required)_: The name of the device in Home Assistant
+  + **subnet_id** _(int) (Required)_: HDL subnet ID of the virtual device
+  + **device_id** _(int) (Required)_: HDL device ID of the virtual device
+  + **channel_number** _(int) (Required)_: HDL channel number
+  + **initial_state** _(boolean) (Optional)_: Initial relay status. Default is False
 
 #### Fan platform
    
@@ -248,4 +278,3 @@ This shows Fan seperately on Google Home and HA, so they are not confused with l
 # Light:
 non dimmable lights were reporting as dimmable to HA, fixed this bug
 Fixed current status getting updated on HA  
-

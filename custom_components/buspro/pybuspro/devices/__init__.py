@@ -7,3 +7,4 @@ from .cover import Cover
 from .sensor import Sensor
 from .switch import Switch
 from .universal_switch import UniversalSwitch
+from .virtual_single_channel import VirtualSingleChannel

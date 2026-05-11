@@ -28,6 +28,8 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_DEVICE_RUNNING_TIME = 0
 DEFAULT_PLATFORM_RUNNING_TIME = 0
 DEFAULT_DIMMABLE = True
+DEFAULT_VIRTUAL_DIMMABLE = True
+DEFAULT_VIRTUAL_INITIAL_BRIGHTNESS = 0
 
 DEVICE_SCHEMA = vol.Schema({
     vol.Optional("running_time", default=DEFAULT_DEVICE_RUNNING_TIME): cv.positive_int,
@@ -35,9 +37,19 @@ DEVICE_SCHEMA = vol.Schema({
     vol.Required(CONF_NAME): cv.string,
 })
 
+VIRTUAL_DEVICE_SCHEMA = vol.Schema({
+    vol.Required(CONF_NAME): cv.string,
+    vol.Required("subnet_id"): cv.positive_int,
+    vol.Required("device_id"): cv.positive_int,
+    vol.Required("channel_number"): cv.positive_int,
+    vol.Optional("dimmable", default=DEFAULT_VIRTUAL_DIMMABLE): cv.boolean,
+    vol.Optional("initial_brightness", default=DEFAULT_VIRTUAL_INITIAL_BRIGHTNESS): cv.positive_int,
+})
+
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional("running_time", default=DEFAULT_PLATFORM_RUNNING_TIME): cv.positive_int,
-    vol.Required(CONF_DEVICES): {cv.string: DEVICE_SCHEMA},
+    vol.Optional(CONF_DEVICES, default={}): {cv.string: DEVICE_SCHEMA},
+    vol.Optional("virtual_devices", default=[]): vol.All(cv.ensure_list, [VIRTUAL_DEVICE_SCHEMA]),
 })
 
 
@@ -46,6 +58,7 @@ async def async_setup_platform(hass, config, async_add_entites, discovery_info=N
     """Set up Buspro light devices."""
     # noinspection PyUnresolvedReferences
     from .pybuspro.devices import Light
+    from .pybuspro.devices import VirtualSingleChannel
 
     hdl = hass.data[DATA_BUSPRO].hdl
     devices = []
@@ -68,6 +81,36 @@ async def async_setup_platform(hass, config, async_add_entites, discovery_info=N
 
         light = Light(hdl, device_address, channel_number, name)
         devices.append(BusproLight(hass, light, device_running_time, dimmable))
+
+    for virtual_device_config in config["virtual_devices"]:
+        name = virtual_device_config[CONF_NAME]
+        device_address = (
+            int(virtual_device_config["subnet_id"]),
+            int(virtual_device_config["device_id"]),
+        )
+        channel_number = int(virtual_device_config["channel_number"])
+        dimmable = bool(virtual_device_config["dimmable"])
+        initial_brightness = int(virtual_device_config["initial_brightness"])
+
+        if not dimmable and initial_brightness > 0:
+            initial_brightness = 100
+
+        _LOGGER.debug(
+            "Adding virtual light '{}' with address {} and channel number {}".format(
+                name,
+                device_address,
+                channel_number,
+            )
+        )
+
+        virtual_light = VirtualSingleChannel(
+            hdl,
+            device_address,
+            channel_number,
+            name,
+            initial_brightness=initial_brightness,
+        )
+        devices.append(BusproLight(hass, virtual_light, 0, dimmable))
 
     async_add_entites(devices)
     for device in devices:
