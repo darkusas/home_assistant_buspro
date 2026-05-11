@@ -64,7 +64,7 @@ async def async_setup_platform(hass, config, async_add_entites, discovery_info=N
             int(virtual_device_config["device_id"]),
         )
         channel_number = int(virtual_device_config["channel_number"])
-        initial_brightness = 100 if bool(virtual_device_config["initial_state"]) else 0
+        initial_level = 100 if bool(virtual_device_config["initial_state"]) else 0
 
         _LOGGER.debug("Adding virtual switch '{}' with address {} and channel number {}".format(name, device_address, channel_number))
 
@@ -73,7 +73,7 @@ async def async_setup_platform(hass, config, async_add_entites, discovery_info=N
             device_address,
             channel_number,
             name,
-            initial_brightness=initial_brightness,
+            initial_brightness=initial_level,
         )
         devices.append(BusproSwitch(hass, virtual_switch))
 

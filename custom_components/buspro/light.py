@@ -30,6 +30,7 @@ DEFAULT_PLATFORM_RUNNING_TIME = 0
 DEFAULT_DIMMABLE = True
 DEFAULT_VIRTUAL_DIMMABLE = True
 DEFAULT_VIRTUAL_INITIAL_BRIGHTNESS = 0
+BRIGHTNESS_LEVEL_VALIDATOR = vol.All(vol.Coerce(int), vol.Range(min=0, max=100))
 
 DEVICE_SCHEMA = vol.Schema({
     vol.Optional("running_time", default=DEFAULT_DEVICE_RUNNING_TIME): cv.positive_int,
@@ -43,7 +44,7 @@ VIRTUAL_DEVICE_SCHEMA = vol.Schema({
     vol.Required("device_id"): cv.positive_int,
     vol.Required("channel_number"): cv.positive_int,
     vol.Optional("dimmable", default=DEFAULT_VIRTUAL_DIMMABLE): cv.boolean,
-    vol.Optional("initial_brightness", default=DEFAULT_VIRTUAL_INITIAL_BRIGHTNESS): cv.positive_int,
+    vol.Optional("initial_brightness", default=DEFAULT_VIRTUAL_INITIAL_BRIGHTNESS): BRIGHTNESS_LEVEL_VALIDATOR,
 })
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
