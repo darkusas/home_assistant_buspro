@@ -21,16 +21,26 @@ DEVICE_SCHEMA = vol.Schema({
     vol.Required(CONF_NAME): cv.string,
 })
 
+VIRTUAL_DEVICE_SCHEMA = vol.Schema({
+    vol.Required(CONF_NAME): cv.string,
+    vol.Required("subnet_id"): cv.positive_int,
+    vol.Required("device_id"): cv.positive_int,
+    vol.Required("channel_number"): cv.positive_int,
+    vol.Optional("initial_state", default=False): cv.boolean,
+})
+
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-    vol.Required(CONF_DEVICES): {cv.string: DEVICE_SCHEMA},
+    vol.Optional(CONF_DEVICES, default={}): {cv.string: DEVICE_SCHEMA},
+    vol.Optional("virtual_devices", default=[]): vol.All(cv.ensure_list, [VIRTUAL_DEVICE_SCHEMA]),
 })
 
 
 # noinspection PyUnusedLocal
-async def async_setup_platform(hass, config, async_add_entites, discovery_info=None):
+async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up Buspro switch devices."""
     # noinspection PyUnresolvedReferences
     from .pybuspro.devices import Switch
+    from .pybuspro.devices import VirtualSingleChannel
 
     hdl = hass.data[DATA_BUSPRO].hdl
     devices = []
@@ -47,7 +57,27 @@ async def async_setup_platform(hass, config, async_add_entites, discovery_info=N
 
         devices.append(BusproSwitch(hass, switch))
 
-    async_add_entites(devices)
+    for virtual_device_config in config["virtual_devices"]:
+        name = virtual_device_config[CONF_NAME]
+        device_address = (
+            int(virtual_device_config["subnet_id"]),
+            int(virtual_device_config["device_id"]),
+        )
+        channel_number = int(virtual_device_config["channel_number"])
+        initial_brightness = 100 if bool(virtual_device_config["initial_state"]) else 0
+
+        _LOGGER.debug("Adding virtual switch '{}' with address {} and channel number {}".format(name, device_address, channel_number))
+
+        virtual_switch = VirtualSingleChannel(
+            hdl,
+            device_address,
+            channel_number,
+            name,
+            initial_brightness=initial_brightness,
+        )
+        devices.append(BusproSwitch(hass, virtual_switch))
+
+    async_add_entities(devices)
 
 
 # noinspection PyAbstractClass
