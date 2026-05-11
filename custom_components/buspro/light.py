@@ -38,7 +38,10 @@ def _parse_channel_address(address: str) -> tuple[tuple[int, int], int]:
     """Parse a Buspro channel address in format subnet.device.channel."""
     address_parts = address.split(".")
     if len(address_parts) != 3 or any(not part.isdigit() for part in address_parts):
-        raise ValueError(f"Invalid Buspro channel address: {address}")
+        raise ValueError(
+            f"Invalid Buspro channel address '{address}': expected format "
+            "'subnet.device.channel' with numeric values"
+        )
     return (int(address_parts[0]), int(address_parts[1])), int(address_parts[2])
 
 DEVICE_SCHEMA = vol.Schema({
