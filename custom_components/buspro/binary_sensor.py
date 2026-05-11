@@ -33,6 +33,7 @@ DEFAULT_CONF_DEVICE_CLASS = "None"
 DEFAULT_CONF_SCAN_INTERVAL = 0
 DEFAULT_CONF_DEVICE= "None"
 DEFAULT_VIRTUAL_INITIAL_STATE = False
+DEFAULT_VIRTUAL_CHANNEL_ON_VALUE = 100
 CONF_DEVICE = "device"
 CONF_MOTION = 'motion'
 CONF_DRY_CONTACT_1 = 'dry_contact_1'
@@ -140,7 +141,11 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     for address, virtual_device_config in config["virtual_devices"].items():
         name = virtual_device_config[CONF_NAME]
         device_address, channel_number = _parse_channel_address(address)
-        initial_channel_value = 100 if bool(virtual_device_config["initial_state"]) else 0
+        initial_channel_value = (
+            DEFAULT_VIRTUAL_CHANNEL_ON_VALUE
+            if bool(virtual_device_config["initial_state"])
+            else 0
+        )
 
         _LOGGER.debug(
             "Adding virtual binary sensor '%s' with address %s and channel number %s",
@@ -154,6 +159,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
             device_address,
             channel_number,
             name,
+            # VirtualSingleChannel stores the raw HDL single-channel level (0-100).
             initial_brightness=initial_channel_value,
         )
         devices.append(BusproBinarySensor(hass, virtual_sensor, CONF_SINGLE_CHANNEL, None, 0))
