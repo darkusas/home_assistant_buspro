@@ -33,6 +33,12 @@ DEFAULT_VIRTUAL_DIMMABLE = True
 DEFAULT_VIRTUAL_INITIAL_BRIGHTNESS = 0
 BRIGHTNESS_LEVEL_VALIDATOR = vol.All(vol.Coerce(int), vol.Range(min=0, max=100))
 
+
+def _parse_channel_address(address: str):
+    """Parse a Buspro channel address in format subnet.device.channel."""
+    address_parts = address.split(".")
+    return (int(address_parts[0]), int(address_parts[1])), int(address_parts[2])
+
 DEVICE_SCHEMA = vol.Schema({
     vol.Optional("running_time", default=DEFAULT_DEVICE_RUNNING_TIME): cv.positive_int,
     vol.Optional("dimmable", default=DEFAULT_DIMMABLE): cv.boolean,
@@ -73,9 +79,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         if dimmable:
             device_running_time = 0
 
-        address_parts = address.split('.')
-        device_address = (int(address_parts[0]), int(address_parts[1]))
-        channel_number = int(address_parts[2])
+        device_address, channel_number = _parse_channel_address(address)
         _LOGGER.debug("Adding light '{}' with address {} and channel number {}".format(name, device_address, channel_number))
 
         light = Light(hdl, device_address, channel_number, name)
@@ -83,9 +87,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 
     for address, virtual_device_config in config["virtual_devices"].items():
         name = virtual_device_config[CONF_NAME]
-        address_parts = address.split(".")
-        device_address = (int(address_parts[0]), int(address_parts[1]))
-        channel_number = int(address_parts[2])
+        device_address, channel_number = _parse_channel_address(address)
         dimmable = bool(virtual_device_config["dimmable"])
         initial_brightness = int(virtual_device_config["initial_brightness"])
 
