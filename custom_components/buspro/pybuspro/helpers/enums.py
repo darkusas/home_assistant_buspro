@@ -25,6 +25,8 @@ class DeviceType(Enum):
     SB_DN_R0816 = b'\x01\xAC'     # Rele
     SB_DRY_4Z = b'\x00\x77'       # Dry contact
     HDL_MSP07M = b'\x01\x50'      # Sensors in One
+    HDL_MSPU02_4c = b'\x01\x55'   # PIR & LUX sensor 
+    HDL_MSPU03_4c = b'\x01\x56'   # Ultrasonic sensor 
 
     # SB_DN_DT0601 = b'\x00\x9E'    # Universaldimmer 6ch 1A
     # SB_DN_RS232N				    # RS232
@@ -107,6 +109,8 @@ class OperateCode(Enum):
     ControlPanelACResponse = b'\xE3\xD9'
     ReadPanelAC = b'\xE3\xDA'
     ReadPanelACResponse = b'\xE3\xDB'
+
+    BroadcastIlluminance = b'\xE4\x41'  # reversu atrasta reikšmė
 
     """
     # 

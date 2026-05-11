@@ -42,6 +42,8 @@ class UDPClient:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            # Allow sending to broadcast addresses (e.g. 192.168.x.255)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)            
             sock.setblocking(False)
             sock.bind(self._gateway_address_receive)
             sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 0)

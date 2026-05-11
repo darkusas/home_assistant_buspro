@@ -26,6 +26,7 @@ from homeassistant.core import callback
 from homeassistant.helpers.entity import Entity
 
 from ..buspro import DATA_BUSPRO
+from .address_validation import validate_buspro_address_str
 
 DEFAULT_CONF_UNIT_OF_MEASUREMENT = ""
 DEFAULT_CONF_DEVICE_CLASS = "None"
@@ -46,7 +47,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_DEVICES):
         vol.All(cv.ensure_list, [
             vol.All({
-                vol.Required(CONF_ADDRESS): cv.string,
+                vol.Required(CONF_ADDRESS): vol.All(validate_buspro_address_str, cv.string),
                 vol.Required(CONF_NAME): cv.string,
                 vol.Required(CONF_TYPE): vol.In(SENSOR_TYPES),
                 vol.Optional(CONF_UNIT_OF_MEASUREMENT, default=DEFAULT_CONF_UNIT_OF_MEASUREMENT): cv.string,
@@ -61,7 +62,8 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 
 
 # noinspection PyUnusedLocal
-async def async_setup_platform(hass, config, async_add_entites, discovery_info=None):
+#async def async_setup_platform(hass, config, async_add_entites, discovery_info=None):
+async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up Buspro switch devices."""
     # noinspection PyUnresolvedReferences
     from .pybuspro.devices import Sensor
@@ -91,20 +93,21 @@ async def async_setup_platform(hass, config, async_add_entites, discovery_info=N
 
         devices.append(BusproSensor(hass, sensor, sensor_type, interval, offset))
 
-    async_add_entites(devices)
-    for device in devices:
-        await device.async_read_status()
-
+    #async_add_entites(devices)
+    #for device in devices:
+    #    await device.async_read_status()
+    async_add_entities(devices)
 
 # noinspection PyAbstractClass
 class BusproSensor(Entity):
     """Representation of a Buspro switch."""
 
     def __init__(self, hass, device, sensor_type, scan_interval, offset):
-        self._hass = hass
+        #self._hass = hass
         self._device = device
         self._sensor_type = sensor_type
-        self.async_register_callbacks()
+        #self.async_register_callbacks()
+        self._after_update_callback = None        
         self._offset = offset
         self._temperature = None
         self._brightness = None
@@ -117,15 +120,35 @@ class BusproSensor(Entity):
     def async_register_callbacks(self):
         """Register callbacks to update hass after device was changed."""
 
+        if self._after_update_callback is not None:
+            return
+
         # noinspection PyUnusedLocal
         async def after_update_callback(device):
             """Call after device was updated."""
-            if self._hass is not None:
-                self._temperature = self._device.temperature
-                self._brightness = self._device.brightness
+            #if self._hass is not None:
+                #self._temperature = self._device.temperature
+                #self._brightness = self._device.brightness
+            self._temperature = self._device.temperature
+            self._brightness = self._device.brightness
+
+            # Entity.hass is set by Home Assistant when the entity is added,
+            # and set back to None when the entity is removed/unloaded.
+            if self.hass is not None:               
                 self.async_write_ha_state()
 
+        self._after_update_callback = after_update_callback
         self._device.register_device_updated_cb(after_update_callback)
+
+    async def async_added_to_hass(self):
+        self.async_register_callbacks()
+        await self.async_read_status()
+
+    async def async_will_remove_from_hass(self):
+        if self._after_update_callback is not None:
+            self._device.unregister_device_updated_cb(self._after_update_callback)
+            self._after_update_callback = None
+
 
     @property
     def should_poll(self):
@@ -143,7 +166,12 @@ class BusproSensor(Entity):
     @property
     def available(self):
         """Return True if entity is available."""
-        connected = self._hass.data[DATA_BUSPRO].connected
+        #connected = self._hass.data[DATA_BUSPRO].connected
+
+        if self.hass is None:
+            return False
+
+        connected = self.hass.data[DATA_BUSPRO].connected
 
         if self._sensor_type == TEMPERATURE:
             return connected and self._current_temperature is not None
@@ -204,4 +232,6 @@ class BusproSensor(Entity):
     async def async_read_status(self):
         """Read the status of the device."""
         await self._device.read_sensor_status()
-        self.async_write_ha_state()
+        #self.async_write_ha_state()
+        if self.hass is not None:
+            self.async_write_ha_state()

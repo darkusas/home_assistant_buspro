@@ -1,4 +1,6 @@
 import traceback
+import logging
+
 from struct import *
 
 from .enums import DeviceType
@@ -6,6 +8,8 @@ from .generics import Generics
 from ..core.telegram import Telegram
 from ..devices.control import *
 
+
+_LOGGER = logging.getLogger(__name__)
 
 class TelegramHelper:
 
@@ -25,15 +29,49 @@ class TelegramHelper:
             index_content = 25
             length_of_data_package = data[index_length_of_data_package]
 
-            source_device_id = data[index_original_device_id]
+
+
             content_length = length_of_data_package - 1 - 1 - 1 - 2 - 2 - 1 - 1 - 1 - 1
-            source_subnet_id = data[index_original_subnet_id]
+
+            source_subnet_id = data[index_original_subnet_id]            
+            source_device_id = data[index_original_device_id]
             source_device_type_hex = data[index_original_device_type:index_original_device_type + 2]
             operate_code_hex = data[index_operate_code:index_operate_code + 2]
             target_subnet_id = data[index_target_subnet_id]
             target_device_id = data[index_target_device_id]
             content = data[index_content:index_content + content_length]
             crc = data[-2:]
+
+
+
+            try:
+                address_str = f"[{source_subnet_id}:{source_device_id}]"
+            except Exception:
+                address_str = None
+
+
+            data_tail = None
+            try:
+                data_tail = data[16:]
+            except Exception:
+                data_tail = None
+
+            try:
+                hex_tail = " ".join(f"{b:02X}" for b in data_tail)
+            except Exception:
+                hex_tail = str(data_tail)
+
+
+
+
+
+            #------------------------------- DEBUG ------------------
+            #if address_str == "[1:70]" or address_str == "[4:190]" or address_str == "[5:130]" or address_str == "[5:131]" or address_str == "[5:136]":
+            #    _LOGGER.debug(
+            #        f"Gautas paketas  addr: {address_str} raw: {hex_tail}"
+            #    )
+            #------------------------------- DEBUG ------------------
+
 
             generics = Generics()
 
@@ -49,12 +87,14 @@ class TelegramHelper:
 
             crc_check_pass = self._check_crc(telegram)
             if not crc_check_pass:
-                print("crc check failed")
+                _LOGGER.debug(
+                    f"CRC failed  addr: {address_str} raw: {hex_tail}"
+                )
                 return None
 
             return telegram
         except Exception as e:
-            print("error building telegram: {}".format(traceback.format_exc()))
+            _LOGGER.error("Error building telegram: {}".format(traceback.format_exc()))
             return None
 
     @staticmethod

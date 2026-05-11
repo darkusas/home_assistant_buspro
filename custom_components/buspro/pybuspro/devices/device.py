@@ -1,6 +1,10 @@
 ﻿import asyncio
+import logging
 
 from .control import _ReadStatusOfChannels
+
+_LOGGER = logging.getLogger(__name__)
+
 
 
 class Device(object):
@@ -32,8 +36,12 @@ class Device(object):
 
     async def _device_updated(self):
         for device_updated_cb in self.device_updated_cbs:
-            await device_updated_cb(self)
-
+            #await device_updated_cb(self)
+            try:
+                await device_updated_cb(self)
+            except Exception:
+                _LOGGER.exception("Device updated callback failed")
+                
     async def _send_telegram(self, telegram):
         await self._buspro.network_interface.send_telegram(telegram)
 

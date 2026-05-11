@@ -1,0 +1,59 @@
+[33mbab76c9[m[33m ([m[1;36mHEAD -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Bug Fix: Lights Greyed in Google Home when refreshing Made light refresh faster on google Home by updating Async
+[33me04eed0[m Fixed opening_time parameter for Curtain Control
+[33mc82993e[m bug fix for async_update() function
+[33mb8e831c[m Fixed Bugs in Cover and Fan
+[33m7948b5c[m Better Device Availability Reporting, Add Curtain with Position Control, AC Panel, Google Assistant Support, Polling
+[33m20872e2[m Update switch.py
+[33mb43b274[m Update light.py
+[33m1302307[m Update binary_sensor.py
+[33m7c10a45[m Update switch.py
+[33m7e82407[m Update climate.py
+[33mbd62801[m Update light.py
+[33m449dc51[m Update climate.py
+[33m3dbcbb6[m Update binary_sensor.py
+[33m45fe0c7[m Update sensor.py
+[33m24382a2[m Update climate.py
+[33m0e6b923[m Sensor returned state 0 when not available. Changed to returning Available = false until valid state is read.
+[33m8f9c45c[m Climate preset modes is configurable per climate entity. If not set in configuration.yaml preset mode selection is not shown.
+[33m056fd1c[m Added support for presets for climate (HDL climate mode). Fixed minor bug with flashing values when changing settings.
+[33mee6bc10[m Update README.md
+[33maef7d6b[m Update en.json
+[33m7c117ef[m Update strings.json
+[33m23b4d9d[m Create services.yaml
+[33m57ba017[m Add files via upload
+[33ma629026[m Delete translations directory
+[33m3606790[m Delete __init__.py
+[33me9de118[m Delete config_flow.py
+[33m1ddec6b[m Delete const.py
+[33ma6ee07e[m Delete manifest.json
+[33m6dd975e[m Delete strings.json
+[33m6f2db80[m Delete strings.json
+[33m9a4d625[m Add files via upload
+[33m8fcc5f6[m Delete __init__.py
+[33m5b96ad7[m Delete config_flow.py
+[33m9f8acb9[m Delete const.py
+[33m913c1d6[m Delete file.txt
+[33mad181c1[m Delete manifest.json
+[33m716bd85[m Delete services.yaml
+[33mdd80d35[m Delete strings.json
+[33m46f32c8[m Delete translations
+[33mc48f5e8[m Add files via upload
+[33mca53291[m Update README.md
+[33m832303f[m Added config flow
+[33mc48930a[m Update README.md
+[33m57f9934[m Update README.md
+[33m01e5a51[m Update README.md
+[33m0486f10[m Update README.md
+[33md68cde5[m commit
+[33m1470e0c[m Update README.md
+[33m736c2e2[m Update README.md
+[33m4d05196[m wrong location
+[33mab706b7[m moved some files
+[33mb346a2b[m update
+[33mcf27762[m Create .gitignore
+[33m154ef41[m Delete README.md
+[33med8abef[m Add files via upload
+[33m0a41c48[m Add files via upload
+[33m9b16311[m Add files via upload
+[33mf14895d[m Create file.txt
+[33m0cb3475[m Initial commit

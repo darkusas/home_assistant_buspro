@@ -29,7 +29,6 @@ class StateUpdater:
             await asyncio.sleep(self.sleep)
             await self.buspro.sync()
 
-
 class Buspro:
 
     def __init__(self, gateway_address_send_receive, loop_=None):

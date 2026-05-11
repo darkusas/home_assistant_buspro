@@ -1,4 +1,6 @@
 import asyncio
+import logging
+
 
 # from ..helpers.generics import Generics
 from .control import _ReadSensorStatus, _ReadStatusOfUniversalSwitch, _ReadStatusOfChannels, _ReadFloorHeatingStatus, \
@@ -6,6 +8,9 @@ from .control import _ReadSensorStatus, _ReadStatusOfUniversalSwitch, _ReadStatu
 from .device import Device
 from ..helpers.enums import *
 
+
+
+_LOGGER = logging.getLogger(__name__)
 
 class Sensor(Device):
     def __init__(self, buspro, device_address, universal_switch_number=None, channel_number=None, device=None,
@@ -34,6 +39,23 @@ class Sensor(Device):
         self._call_read_current_status_of_sensor(run_from_init=True)
 
     def _telegram_received_cb(self, telegram):
+
+        # išvedam į debug logą telegram duomenis ir nurodom adddress(kaip device sub ir device id), operate_code ir Device Type, kad matytume gautus telegramus, kurių dar neapdorojame
+        try:
+            address_high, address_low = self._device_address
+            address_high &= 0xFF
+            address_low &= 0xFF
+            address_str = f"[{address_high}:{address_low}]"
+        except Exception:
+            address_str = str(self._device_address)
+
+        #if address_str == "[1:70]" or address_str == "[4:190]" or address_str == "[5:130]" or address_str == "[5:131]" or address_str == "[5:136]":
+        #    _LOGGER.debug(
+        #        f"_telegram_received_cb telegram address: {address_str}, operate_code: {telegram.operate_code} for device type: {str(self._device)}"
+        #    )
+
+
+
         if telegram.operate_code == OperateCode.ReadSensorStatusResponse:
             success_or_fail = telegram.payload[0]
             self._current_temperature = telegram.payload[1]
@@ -43,8 +65,10 @@ class Sensor(Device):
             self._sonic = telegram.payload[5]
             self._dry_contact_1_status = telegram.payload[6]
             self._dry_contact_2_status = telegram.payload[7]
-            if success_or_fail == SuccessOrFailure.Success:
-                self._brightness = brightness_high + brightness_low
+            #if success_or_fail == SuccessOrFailure.Success:
+            #    self._brightness = brightness_high + brightness_low
+            if success_or_fail == SuccessOrFailure.Success.value[0]:
+                self._brightness = (brightness_high << 8) + brightness_low                
             self._call_device_updated()
 
         elif telegram.operate_code == OperateCode.ReadMotionSensorStatusResponse:
@@ -53,13 +77,19 @@ class Sensor(Device):
 
         elif telegram.operate_code == OperateCode.ReadSensorsInOneStatusResponse:
             self._current_temperature = telegram.payload[1]
+            self._current_temperature = self._current_temperature - 20
+            brightness_high = telegram.payload[2]
+            brightness_low = telegram.payload[3]
             self._motion_sensor = telegram.payload[7]
             self._dry_contact_1_status = telegram.payload[8]
             self._dry_contact_2_status = telegram.payload[9]
+            if brightness_high is not None and brightness_low is not None:
+                self._brightness = (brightness_high << 8) + brightness_low
             self._call_device_updated()
 
         elif telegram.operate_code == OperateCode.BroadcastSensorStatusResponse:
-            if(len(telegram.payload>0)):
+            #if(len(telegram.payload>0)):
+            if len(telegram.payload) > 0:
                 self._current_temperature = telegram.payload[0]
                 brightness_high = telegram.payload[1]
                 brightness_low = telegram.payload[2]
@@ -67,7 +97,8 @@ class Sensor(Device):
                 self._sonic = telegram.payload[4]
                 self._dry_contact_1_status = telegram.payload[5]
                 self._dry_contact_2_status = telegram.payload[6]
-                self._brightness = brightness_high + brightness_low
+                #self._brightness = brightness_high + brightness_low
+                self._brightness = (brightness_high << 8) + brightness_low
                 self._call_device_updated()
 
         elif telegram.operate_code == OperateCode.BroadcastSensorStatusAutoResponse:
@@ -81,7 +112,8 @@ class Sensor(Device):
             self._sonic = telegram.payload[4]
             self._dry_contact_1_status = telegram.payload[5]
             self._dry_contact_2_status = telegram.payload[6]
-            self._brightness = brightness_high + brightness_low
+            #self._brightness = brightness_high + brightness_low
+            self._brightness = (brightness_high << 8) + brightness_low            
             self._call_device_updated()
 
         elif telegram.operate_code == OperateCode.ReadFloorHeatingStatusResponse:
@@ -129,6 +161,31 @@ class Sensor(Device):
             if self._switch_number == telegram.payload[1]:
                 self._switch_status = telegram.payload[2]
                 self._call_device_updated()
+
+        elif telegram.operate_code == OperateCode.BroadcastIlluminance:
+            brightness_high = telegram.payload[2]
+            brightness_low = telegram.payload[3]
+            self._brightness = (brightness_high << 8) + brightness_low            
+            self._call_device_updated()
+
+        #else:
+
+            #if address_str == "[1:70]" or address_str == "[4:190]" or address_str == "[5:130]" or address_str == "[5:131]" or address_str == "[5:136]":
+                #data_tail = None
+                #try:
+                #    data_tail = telegram.udp_data[16:]
+                #except Exception:
+                #    data_tail = None
+
+                #try:
+                #    hex_tail = " ".join(f"{b:02X}" for b in data_tail)
+                #except Exception:
+                #    hex_tail = str(data_tail)
+
+                #_LOGGER.debug(
+                #    f"Received unhandled telegram : {telegram}"
+                #    f" udp_data[16:]: {hex_tail}"
+                #)
 
     async def read_sensor_status(self):
         if self._universal_switch_number is not None:

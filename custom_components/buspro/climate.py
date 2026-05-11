@@ -35,6 +35,11 @@ from .pybuspro.helpers.enums import OnOffStatus
 from datetime import timedelta
 import homeassistant.helpers.event as event
 
+from .address_validation import (
+    validate_buspro_address_str,
+    validate_optional_buspro_address_str,
+)
+
 _LOGGER = logging.getLogger(__name__)
 
 PRESET_NONE = "none"
@@ -62,12 +67,15 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_DEVICES):
         vol.All(cv.ensure_list, [
             vol.All({
-                vol.Required(CONF_ADDRESS): cv.string,
+                vol.Required(CONF_ADDRESS): vol.All(validate_buspro_address_str, cv.string),
                 vol.Required(CONF_NAME): cv.string,
                 vol.Optional(CONF_PRESET_MODES, default=[]): vol.All(
                     cv.ensure_list, [vol.In(HA_PRESET_TO_HDL)]
                 ),
-                vol.Optional(CONF_RELAY_ADDRESS, default=''): cv.string,
+                vol.Optional(CONF_RELAY_ADDRESS, default=''): vol.All(
+                    validate_optional_buspro_address_str,
+                    cv.string,
+                ),
             })
         ])
 })

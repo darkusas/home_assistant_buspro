@@ -25,6 +25,7 @@ from homeassistant.core import callback
 
 from datetime import timedelta
 from ..buspro import DATA_BUSPRO
+from .address_validation import validate_buspro_address_str
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_DEVICES):
         vol.All(cv.ensure_list, [
             vol.All({
-                vol.Required(CONF_ADDRESS): cv.string,
+                vol.Required(CONF_ADDRESS): vol.All(validate_buspro_address_str, cv.string),
                 vol.Required(CONF_NAME): cv.string,
                 vol.Required(CONF_TYPE): vol.In(SENSOR_TYPES),
                 vol.Optional(CONF_DEVICE_CLASS, default=DEFAULT_CONF_DEVICE_CLASS): cv.string,
