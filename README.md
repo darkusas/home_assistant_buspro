@@ -4,6 +4,8 @@
 
 The HDL Buspro integration allows you to control your HDL Buspro system from Home Assistant.
 
+Virtual single-channel HDL devices can be exposed in Home Assistant as a `light`, `switch`, or `binary_sensor`, depending on which platform you configure them under.
+
 ## Installation
 Under HACS -> Integrations, add custom repository "https://github.com/eyesoft/home_assistant_buspro/" with Category "Integration". Select the integration named "HDL Buspro" and download it.
 
@@ -172,6 +174,20 @@ binary_sensor:
     + pir
     + 8in1
     + 12in1
++ **virtual_devices** _(Optional)_: Map of virtual single-channel HDL devices exposed as `binary_sensor`
+  + **X.X.X** _(Required)_: Virtual address in format `<subnet ID>.<device ID>.<channel number>`
+    + **name** _(string) (Required)_: The name of the device in Home Assistant
+    + **initial_state** _(boolean) (Optional)_: Initial binary sensor state. Default is False
+
+Example:
+```yaml
+binary_sensor:
+  - platform: buspro
+    virtual_devices:
+      1.252.1:
+        name: Virtual Occupancy
+        initial_state: false
+```
 
 Older Devices like CMS-PIR are supported via PIR
 
