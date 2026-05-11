@@ -7,8 +7,6 @@ class VirtualSingleChannel(Device):
     def __init__(self, buspro, device_address, channel_number, name="", initial_brightness=0):
         super().__init__(buspro, device_address, name)
 
-        self._buspro = buspro
-        self._device_address = device_address
         self._channel = channel_number
         self._brightness = self._normalize_level(initial_brightness)
         self._previous_brightness = self._brightness if self._brightness > 0 else None
@@ -50,22 +48,30 @@ class VirtualSingleChannel(Device):
         self._buspro.loop.create_task(_run())
 
     async def _send_single_channel_control_response(self):
+        channel_total, channel_statuses = self._build_channel_status_list()
         telegram = Telegram()
         telegram.source_address = self._device_address
         telegram.source_device_type = DeviceType.PyBusPro
         telegram.target_address = (255, 255)
         telegram.operate_code = OperateCode.SingleChannelControlResponse
-        telegram.payload = [self._channel, 0xF8, self._brightness, 1, self._brightness]
+        telegram.payload = [self._channel, 0xF8, self._brightness, channel_total, *channel_statuses]
         await self._send_telegram(telegram)
 
     async def _send_status_response(self, response_operate_code, source_address):
+        channel_total, channel_statuses = self._build_channel_status_list()
         telegram = Telegram()
         telegram.source_address = self._device_address
         telegram.source_device_type = DeviceType.PyBusPro
         telegram.target_address = source_address if source_address is not None else (255, 255)
         telegram.operate_code = response_operate_code
-        telegram.payload = [1, self._brightness]
+        telegram.payload = [channel_total, *channel_statuses]
         await self._send_telegram(telegram)
+
+    def _build_channel_status_list(self):
+        channel_total = max(1, self._channel)
+        channel_statuses = [0] * channel_total
+        channel_statuses[self._channel - 1] = self._brightness
+        return channel_total, channel_statuses
 
     @staticmethod
     def _normalize_level(value):
