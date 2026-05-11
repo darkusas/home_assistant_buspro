@@ -116,5 +116,9 @@ class VirtualSingleChannel(Device):
         return self._brightness > 0
 
     @property
+    def single_channel_is_on(self):
+        return self.is_on
+
+    @property
     def device_identifier(self):
         return f"{self._device_address}-{self._channel}-virtual"
