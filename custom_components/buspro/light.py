@@ -36,8 +36,9 @@ BRIGHTNESS_LEVEL_VALIDATOR = vol.All(vol.Coerce(int), vol.Range(min=0, max=100))
 
 def _parse_channel_address(address: str) -> tuple[tuple[int, int], int]:
     """Parse a Buspro channel address in format subnet.device.channel."""
-    address_parts = address.split(".")
-    if len(address_parts) != 3 or any(not part.isdigit() for part in address_parts):
+    validated_address = validate_buspro_address_str(address)
+    address_parts = validated_address.split(".")
+    if len(address_parts) != 3:
         raise ValueError(
             f"Invalid Buspro channel address '{address}': expected format "
             "'subnet.device.channel' with numeric values"
