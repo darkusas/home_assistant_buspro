@@ -19,6 +19,7 @@ from homeassistant.const import (CONF_NAME, CONF_DEVICES)
 from homeassistant.core import callback
 
 from ..buspro import DATA_BUSPRO
+from .address_validation import validate_buspro_address_str
 from datetime import timedelta
 import homeassistant.helpers.event as event
 
@@ -40,9 +41,6 @@ DEVICE_SCHEMA = vol.Schema({
 
 VIRTUAL_DEVICE_SCHEMA = vol.Schema({
     vol.Required(CONF_NAME): cv.string,
-    vol.Required("subnet_id"): cv.positive_int,
-    vol.Required("device_id"): cv.positive_int,
-    vol.Required("channel_number"): cv.positive_int,
     vol.Optional("dimmable", default=DEFAULT_VIRTUAL_DIMMABLE): cv.boolean,
     vol.Optional("initial_brightness", default=DEFAULT_VIRTUAL_INITIAL_BRIGHTNESS): BRIGHTNESS_LEVEL_VALIDATOR,
 })
@@ -50,7 +48,7 @@ VIRTUAL_DEVICE_SCHEMA = vol.Schema({
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional("running_time", default=DEFAULT_PLATFORM_RUNNING_TIME): cv.positive_int,
     vol.Optional(CONF_DEVICES, default={}): {cv.string: DEVICE_SCHEMA},
-    vol.Optional("virtual_devices", default=[]): vol.All(cv.ensure_list, [VIRTUAL_DEVICE_SCHEMA]),
+    vol.Optional("virtual_devices", default={}): {validate_buspro_address_str: VIRTUAL_DEVICE_SCHEMA},
 })
 
 
@@ -83,13 +81,11 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         light = Light(hdl, device_address, channel_number, name)
         devices.append(BusproLight(hass, light, device_running_time, dimmable))
 
-    for virtual_device_config in config["virtual_devices"]:
+    for address, virtual_device_config in config["virtual_devices"].items():
         name = virtual_device_config[CONF_NAME]
-        device_address = (
-            int(virtual_device_config["subnet_id"]),
-            int(virtual_device_config["device_id"]),
-        )
-        channel_number = int(virtual_device_config["channel_number"])
+        address2 = address.split(".")
+        device_address = (int(address2[0]), int(address2[1]))
+        channel_number = int(address2[2])
         dimmable = bool(virtual_device_config["dimmable"])
         initial_brightness = int(virtual_device_config["initial_brightness"])
 

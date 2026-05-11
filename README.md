@@ -35,28 +35,22 @@ light:
     + **name** _(string) (Required)_: The name of the device
     + **running_time** _(int) (Optional)_: The running time in seconds for the device. If omitted, the default running time for all devices is used.
     + **dimmable** _(boolean) (Optional)_: Is the device dimmable? Default is True. 
-+ **virtual_devices** _(Optional)_: List of virtual single-channel HDL dimmer/relay devices exposed on the HDL bus
-  + **name** _(string) (Required)_: The name of the device in Home Assistant
-  + **subnet_id** _(int) (Required)_: HDL subnet ID of the virtual device
-  + **device_id** _(int) (Required)_: HDL device ID of the virtual device
-  + **channel_number** _(int) (Required)_: HDL channel number
-  + **dimmable** _(boolean) (Optional)_: If False, the virtual device acts as relay (on/off only). Default is True
-  + **initial_brightness** _(int) (Optional)_: Initial virtual channel level 0-100. Default is 0
++ **virtual_devices** _(Optional)_: Map of virtual single-channel HDL dimmer/relay devices exposed on the HDL bus
+  + **X.X.X** _(Required)_: Virtual address in format `<subnet ID>.<device ID>.<channel number>`
+    + **name** _(string) (Required)_: The name of the device in Home Assistant
+    + **dimmable** _(boolean) (Optional)_: If False, the virtual device acts as relay (on/off only). Default is True
+    + **initial_brightness** _(int) (Optional)_: Initial virtual channel level 0-100. Default is 0
 
 Example:
 ```yaml
 light:
   - platform: buspro
     virtual_devices:
-      - name: Virtual HDL Dimmer
-        subnet_id: 1
-        device_id: 250
-        channel_number: 1
+      1.250.1:
+        name: Virtual HDL Dimmer
         dimmable: true
-      - name: Virtual HDL Relay
-        subnet_id: 1
-        device_id: 251
-        channel_number: 1
+      1.251.1:
+        name: Virtual HDL Relay
         dimmable: false
 ```
 
