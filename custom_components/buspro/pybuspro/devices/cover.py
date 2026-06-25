@@ -27,6 +27,8 @@ class Cover(Device):
         self._opening_time=opening_time #time it takes to open curtain, set to 20 sec by default
         self._state_changetime=opening_time
         self._start_time = None #time at which curtain started to open or close to calculate start_time
+        self._start_position = None #position when the last movement command was issued
+        self._movement_task = None #asyncio task tracking delayed final-state update
         self.register_telegram_received_cb(self._telegram_received_cb)
         self._call_read_current_status_of_channels(run_from_init=True)
 
@@ -159,7 +161,7 @@ class Cover(Device):
             if self._position:
                 return self._position
             return 99
-        elif self._status == CoverStatus.CLOSE:
+        elif self._status in [CoverStatus.CLOSE, CoverStatus.STOP]:
             if self._position:
                 return self._position
             return 1
@@ -171,7 +173,13 @@ class Cover(Device):
 
     async def _set(self, status):
         if status in [CoverStatus.OPEN, CoverStatus.CLOSE]:
+            # Cancel any in-progress movement task before starting a new one
+            if self._movement_task and not self._movement_task.done():
+                self._movement_task.cancel()
+                self._movement_task = None
+
             self._start_time = datetime.datetime.now()
+            self._start_position = self._position if self._position is not None else (1 if status == CoverStatus.OPEN else 99)
             if status == CoverStatus.CLOSE:
                 self._requested_position=1
             else:
@@ -189,13 +197,26 @@ class Cover(Device):
             self._call_device_updated()
             await self._send_command()
 
-            # Schedule task to update to final status after 30 seconds
-            asyncio.create_task(self._update_status_after_delay(self._requested_position))
+            # Schedule task to update to final status after movement completes
+            self._movement_task = asyncio.create_task(self._update_status_after_delay(self._requested_position))
         else: # incase of stop
-            # For other statuses, set directly and send command
+            # Cancel the in-progress movement task immediately
+            if self._movement_task and not self._movement_task.done():
+                self._movement_task.cancel()
+                self._movement_task = None
+
+            # Recalculate the current position based on how far movement progressed
+            if (self._start_time is not None and self._state_changetime > 0
+                    and self._start_position is not None and self._requested_position is not None):
+                elapsed = (datetime.datetime.now() - self._start_time).total_seconds()
+                progress = min(elapsed / self._state_changetime, 1.0)
+                self._position = int(self._start_position + (self._requested_position - self._start_position) * progress)
+
             self._status = status
             self._command = status
             await self._send_command()
+            # Notify HA immediately so buttons become active right away
+            self._call_device_updated()
 
     async def _update_status_after_delay(self, request_position ):
         await asyncio.sleep(self._state_changetime)  # Wait for 20 seconds
