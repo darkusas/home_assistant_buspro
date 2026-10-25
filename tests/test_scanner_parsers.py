@@ -61,8 +61,9 @@ def test_parse_module_reply_too_short():
 
 
 @pytest.mark.parametrize("big, small, category", [
-    (1, 0, "dimmer"), (1, 1, "relay"), (2, 0, "curtain"), (4, 0, "dry_contact"), (4, 1, "button"),
-    (5, 0, "dry_contact"), (5, 25, "dry_contact"), (5, 2, "temperature"), (5, 9, "sensor"),
+    (1, 0, "dimmer"), (1, 1, "relay"), (1, 8, "dmx"), (1, 12, "output"), (2, 0, "curtain"),
+    (4, 0, "dry_contact"), (4, 1, "button"), (5, 0, "dry_contact"), (5, 25, "dry_contact"),
+    (5, 1, "motion"), (5, 2, "temperature"), (5, 4, "illuminance"), (5, 9, "sensor"),
     (7, 0, "ac"), (8, 0, "floor_heating"), (99, 0, "unknown"),
 ])
 def test_module_function_category(big, small, category):
@@ -74,7 +75,7 @@ def test_build_module_read_payload():
     payload = build_module_read_payload((5, 6), exclude)
 
     assert payload[:2] == [5, 6]
-    assert len(payload) == 2 + 32 * 2
+    assert len(payload) == 2 + 15 * 2  # Setup Tool's limit
     assert payload[2:6] == [1, 1, 1, 2]
     with pytest.raises(ValueError):
         build_module_read_payload((0, 6))

@@ -16,7 +16,8 @@ from dataclasses import dataclass, field
 
 from .remarks import REMARK_LENGTH, DEFAULT_ENCODINGS, decode_remark
 
-MAX_EXCLUDED_DEVICES = 32
+# Setup Tool 2 never sends more than 15 pairs (a 32-byte payload).
+MAX_EXCLUDED_DEVICES = 15
 _FUNCTIONS_OFFSET = 2 + REMARK_LENGTH
 
 BIG_OUTPUT = 1
@@ -37,7 +38,7 @@ class ModuleFunction:
     def category(self):
         """Short name of what this function is, as used by the scanner."""
         if self.big == BIG_OUTPUT:
-            return "dimmer" if self.small == 0 else "relay"
+            return {0: "dimmer", 1: "relay", 8: "dmx"}.get(self.small, "output")
         if self.big == BIG_CURTAIN:
             return "curtain"
         if self.big == BIG_PANEL:
@@ -45,9 +46,8 @@ class ModuleFunction:
         if self.big == BIG_SENSOR:
             if self.small in (0, 25):
                 return "dry_contact"
-            if self.small == 2:
-                return "temperature"
-            return "sensor"
+            # 1 and 4 inferred from motion + illuminance sensors (types 0x0155, 0x0156).
+            return {1: "motion", 2: "temperature", 4: "illuminance"}.get(self.small, "sensor")
         if self.big == BIG_AC:
             return "ac"
         if self.big == BIG_FLOOR_HEATING:
@@ -63,7 +63,7 @@ class ModuleReply:
 
 
 def build_module_read_payload(session, exclude=()):
-    """Build a 0xE548 payload. Devices listed in exclude (at most 32) do not answer."""
+    """Build a 0xE548 payload. Devices listed in exclude (at most 15) do not answer."""
     session_1, session_2 = session
     if not (1 <= session_1 <= 255 and 1 <= session_2 <= 255):
         raise ValueError("session bytes must be 1-255")

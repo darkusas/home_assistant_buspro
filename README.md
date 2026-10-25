@@ -241,6 +241,14 @@ Domain: buspro
 Service: activate_scene
 Service Data: {"address": [1,74], "scene_address": [3,5]}
 ```
+#### Scanning the bus:
+```
+Domain: buspro
+Service: scan
+Service Data: {"rounds": 4, "interval": 10}
+```
+Finds HDL devices, their channels and the names stored in them (read-only, takes about a minute). Call it with "return response" in Developer tools to see the result; the last result is also included in the integration's diagnostics. The same scan can be run without Home Assistant from any PC in the gateway's network: `python tools/hdl_probe.py --gateway <ip> scan`.
+
 #### Setting an universal switch:
 ```
 Domain: buspro

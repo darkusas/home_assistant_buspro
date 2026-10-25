@@ -2,7 +2,7 @@
 """HDL Buspro probe for protocol verification (docs/device-scan-plan.md, stage 0).
 
 Runs on any PC in the same LAN as the HDL IP gateway; Home Assistant is not needed.
-Only "remark", "channels", "channel-remarks" and "module" are read-only; "raw" sends
+"scan", "remark", "channels", "channel-remarks" and "module" are read-only; "raw" sends
 whatever you give it. Every received telegram is printed and, with --log, appended
 to a JSON Lines file that can be attached to docs/protocol-captures/.
 
@@ -11,6 +11,7 @@ to a JSON Lines file that can be attached to docs/protocol-captures/.
   python tools/hdl_probe.py --gateway 192.168.1.10 channels 1.89
   python tools/hdl_probe.py --gateway 192.168.1.10 channel-remarks 1.89
   python tools/hdl_probe.py --gateway 192.168.1.10 module            # broadcast 0xE548
+  python tools/hdl_probe.py --gateway 192.168.1.10 scan --json scan.json   # what Home Assistant's scan finds
   python tools/hdl_probe.py --gateway 192.168.1.10 raw 1.89 0xF00E 1
   tshark -r capture.pcapng -Y "udp.port==6000" -T fields -e udp.payload | python tools/hdl_probe.py decode -
 
@@ -31,7 +32,7 @@ from pybuspro.buspro import BROADCAST_ADDRESS, Buspro  # noqa: E402
 from pybuspro.helpers.enums import OperateCode  # noqa: E402
 from pybuspro.helpers.generics import Generics  # noqa: E402
 from pybuspro.helpers.telegram_helper import TelegramHelper  # noqa: E402
-from pybuspro.scanner import build_module_read_payload, parse_module_reply  # noqa: E402
+from pybuspro.scanner import BusScanner, ScanOptions, build_module_read_payload, parse_module_reply  # noqa: E402
 
 ENCODINGS = ("utf-8", "cp1257", "gbk", "latin-1")
 # Reply code -> offset of a possible 20-byte remark in its payload.
@@ -89,6 +90,7 @@ class Probe:
         self.args = args
         self.buspro = None
         self.log = args.log.open("a", encoding="utf-8") if args.log else None
+        self.quiet = False
 
     def write_log(self, entry):
         if self.log is not None:
@@ -98,7 +100,8 @@ class Probe:
     def on_telegram(self, telegram):
         entry = describe(telegram)
         entry["direction"] = "rx"
-        print_entry(entry)
+        if not self.quiet:
+            print_entry(entry)
         self.write_log(entry)
 
     def log_request(self, target, operate_code, payload):
@@ -161,6 +164,30 @@ class Probe:
         await self.send(target, OperateCode.ReadDeviceModule, payload)
         await asyncio.sleep(self.args.seconds)
 
+    async def cmd_scan(self):
+        self.quiet = not self.args.show_telegrams
+        options = ScanOptions(search_rounds=self.args.rounds, search_interval=self.args.interval,
+                              settle_time=self.args.interval / 2, request_timeout=self.args.timeout,
+                              request_retries=self.args.retries, read_mac=not self.args.no_mac,
+                              read_channel_names=not self.args.no_names)
+
+        def progress(p):
+            print(f"\r   {p.phase:<10} devices: {p.devices:<4} {p.done}/{p.total}      ", end="", flush=True)
+
+        result = await BusScanner(self.buspro).scan(options, progress)
+        print(f"\nFound {len(result.devices)} devices in {result.duration:.0f} s "
+              f"(ignored {result.ignored_sources} software sources such as Setup Tool PCs)")
+        for device in result.devices:
+            data = device.to_dict()
+            print(f"{data['address']:>7} {data['type_code']} {data['category']:<18} {str(data['remark'] or ''):<20} "
+                  f"MAC {data['mac'] or '-'}  functions {data['functions']}")
+            for channel in data["channels"]:
+                level = "" if channel["level"] is None else channel["level"]
+                print(f"{'':10}{channel['number']:>3} {channel['kind']:<13} {level!s:>4}  {channel['name'] or ''}")
+        if self.args.json:
+            self.args.json.write_text(json.dumps(result.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"Saved to {self.args.json}")
+
     async def cmd_raw(self):
         payload = [int(value, 0) for value in self.args.payload]
         await self.send(parse_address(self.args.address), int(self.args.operate_code, 0), payload)
@@ -209,6 +236,13 @@ def build_parser():
     raw.add_argument("payload", nargs="*", help="payload bytes, e.g. 1 0x64")
     raw.add_argument("--seconds", type=float, default=3, help="how long to listen afterwards")
     commands.add_parser("decode", help="decode hex payloads from a file or - for stdin").add_argument("file")
+    scan = commands.add_parser("scan", help="run the full bus scan (read-only)")
+    scan.add_argument("--rounds", type=int, default=4, help="search rounds (one finds ~87%% of devices)")
+    scan.add_argument("--interval", type=float, default=10, help="seconds per search round")
+    scan.add_argument("--no-mac", action="store_true", help="do not read MAC addresses")
+    scan.add_argument("--no-names", action="store_true", help="do not read channel names")
+    scan.add_argument("--json", type=pathlib.Path, help="save the result as JSON")
+    scan.add_argument("--show-telegrams", action="store_true", help="print every telegram during the scan")
     return parser
 
 

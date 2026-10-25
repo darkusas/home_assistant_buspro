@@ -1,0 +1,120 @@
+"""In-memory HDL bus with simulated devices, behaving like the captured installations.
+
+FakeBus replaces Buspro.network_interface: every sent telegram is encoded to UDP
+bytes, parsed back and offered to each SimDevice, whose replies are delivered to
+Buspro as received telegrams on the next loop iteration.
+"""
+
+import asyncio
+
+from pybuspro.helpers.telegram_helper import TelegramHelper
+
+from fakes import GATEWAY, wire_telegram
+
+BROADCAST = (255, 255)
+
+
+def remark_bytes(text):
+    if text is None:
+        return [0xFF] * 20
+    data = list(text.encode("cp1257"))[:20]
+    return data + [0] * (20 - len(data))
+
+
+class SimDevice:
+    def __init__(self, address, type_code, remark=None, mac=None, functions=None, levels=None,
+                 channel_names=None, answers_search=True, missed_searches=0, answers_remark=True,
+                 broadcasts=()):
+        self.address = address
+        self.type_code = type_code
+        self.remark = remark
+        self.mac = mac or [0x10, 0x20, 0x30, 0x40, 0x50, 0x60, address[0], address[1]]
+        self.functions = functions  # list of (big, small, count); None = ignores 0xE548
+        self.levels = levels  # list of channel levels; None = not an output module
+        self.channel_names = channel_names or {}  # channel -> name; channels missing here do not answer
+        self.answers_search = answers_search
+        self.missed_searches = missed_searches  # broadcast 0x000E rounds to ignore, like a busy bus
+        self.answers_remark = answers_remark
+        self.broadcasts = broadcasts  # [(operate_code, payload)] sent once when the bus starts
+        self.received = []
+
+    def reply(self, operate_code, payload, target):
+        return wire_telegram(self.address, target, operate_code, payload, device_type=self.type_code)
+
+    def handle(self, telegram):
+        to_me = tuple(telegram.target_address) == self.address
+        broadcast = tuple(telegram.target_address) == BROADCAST
+        if not (to_me or broadcast):
+            return []
+        self.received.append(telegram)
+        code = int.from_bytes(telegram.operate_code_raw, "big")
+        source = tuple(telegram.source_address)
+        payload = telegram.payload
+
+        if code == 0x000E and self.answers_remark:
+            if broadcast:
+                if not self.answers_search:
+                    return []
+                if self.missed_searches > 0:
+                    self.missed_searches -= 1
+                    return []
+            return [self.reply(0x000F, remark_bytes(self.remark), source)]
+
+        if code == 0xE548 and self.functions is not None:
+            excluded = {tuple(payload[i:i + 2]) for i in range(2, len(payload) - 1, 2)}
+            if self.address in excluded:
+                return []
+            triples = [value for triple in self.functions for value in triple]
+            return [self.reply(0xE549, payload[:2] + remark_bytes(self.remark) + triples, source)]
+
+        if not to_me:
+            return []  # like real modules, the rest is only answered when addressed directly
+
+        if code == 0x0033 and self.levels is not None:
+            return [self.reply(0x0034, [len(self.levels)] + self.levels, source)]
+        if code == 0x0031 and self.levels is not None and 1 <= payload[0] <= len(self.levels):
+            self.levels[payload[0] - 1] = payload[1]
+            mask = [0] * ((len(self.levels) + 7) // 8)
+            for index, level in enumerate(self.levels):
+                if level:
+                    mask[index // 8] |= 1 << (index % 8)
+            return [self.reply(0x0032, [payload[0], 0xF8, payload[1], len(self.levels)] + mask, BROADCAST)]
+        if code == 0xF003:
+            return [self.reply(0xF004, list(self.mac), source)]
+        if code == 0xF00E and payload and payload[0] in self.channel_names:
+            return [self.reply(0xF00F, [payload[0]] + remark_bytes(self.channel_names[payload[0]]), source)]
+        return []
+
+
+class FakeBus:
+    def __init__(self, buspro, devices, echo=True):
+        self.buspro = buspro
+        self.devices = devices
+        self.echo = echo  # the gateway broadcasts our own telegrams back to us, like on a real LAN
+        self.sent = []
+        self._helper = TelegramHelper()
+
+    def start(self):
+        """Deliver each device's spontaneous broadcasts (temperature, sensor status...)."""
+        for device in self.devices:
+            for operate_code, payload in device.broadcasts:
+                self._deliver(device.reply(operate_code, payload, BROADCAST))
+
+    async def stop(self):
+        pass
+
+    async def send_telegram(self, telegram):
+        sent = self._helper.build_telegram_from_udp_data(bytes(self._helper.build_send_buffer(telegram)), GATEWAY)
+        self.sent.append(sent)
+        if self.echo:
+            self._deliver(sent)
+        for device in self.devices:
+            for reply in device.handle(sent):
+                self._deliver(reply)
+
+    def _deliver(self, telegram):
+        asyncio.get_running_loop().call_soon(self.buspro._callback_all_messages, telegram)
+
+    def sent_codes(self, target=None):
+        return [int.from_bytes(t.operate_code_raw, "big") for t in self.sent
+                if target is None or tuple(t.target_address) == target]

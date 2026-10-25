@@ -17,7 +17,8 @@ from homeassistant.const import (
 from homeassistant.const import (
     EVENT_HOMEASSISTANT_STOP,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.config_entries import ConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ DEFAULT_SEND_MESSAGE_NAME = "BUSPRO MESSAGE"
 SERVICE_BUSPRO_SEND_MESSAGE = "send_message"
 SERVICE_BUSPRO_ACTIVATE_SCENE = "activate_scene"
 SERVICE_BUSPRO_UNIVERSAL_SWITCH = "set_universal_switch"
+SERVICE_BUSPRO_SCAN = "scan"
 
 SERVICE_BUSPRO_ATTR_OPERATE_CODE = "operate_code"
 SERVICE_BUSPRO_ATTR_ADDRESS = "address"
@@ -41,6 +43,10 @@ SERVICE_BUSPRO_ATTR_PAYLOAD = "payload"
 SERVICE_BUSPRO_ATTR_SCENE_ADDRESS = "scene_address"
 SERVICE_BUSPRO_ATTR_SWITCH_NUMBER = "switch_number"
 SERVICE_BUSPRO_ATTR_STATUS = "status"
+SERVICE_BUSPRO_ATTR_ROUNDS = "rounds"
+SERVICE_BUSPRO_ATTR_INTERVAL = "interval"
+SERVICE_BUSPRO_ATTR_READ_NAMES = "read_names"
+SERVICE_BUSPRO_ATTR_READ_MAC = "read_mac"
 
 """{ "address": [1,74], "scene_address": [3,5] }"""
 SERVICE_BUSPRO_ACTIVATE_SCENE_SCHEMA = vol.Schema({
@@ -60,6 +66,14 @@ SERVICE_BUSPRO_UNIVERSAL_SWITCH_SCHEMA = vol.Schema({
     vol.Required(SERVICE_BUSPRO_ATTR_ADDRESS): vol.Any([cv.positive_int]),
     vol.Required(SERVICE_BUSPRO_ATTR_SWITCH_NUMBER): vol.Any(cv.positive_int),
     vol.Required(SERVICE_BUSPRO_ATTR_STATUS): vol.Any(cv.positive_int),
+})
+
+"""{ "rounds": 4, "interval": 10, "read_names": true, "read_mac": true }"""
+SERVICE_BUSPRO_SCAN_SCHEMA = vol.Schema({
+    vol.Optional(SERVICE_BUSPRO_ATTR_ROUNDS, default=4): vol.All(vol.Coerce(int), vol.Range(min=1, max=10)),
+    vol.Optional(SERVICE_BUSPRO_ATTR_INTERVAL, default=10): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=60)),
+    vol.Optional(SERVICE_BUSPRO_ATTR_READ_NAMES, default=True): cv.boolean,
+    vol.Optional(SERVICE_BUSPRO_ATTR_READ_MAC, default=True): cv.boolean,
 })
 
 CONFIG_SCHEMA = vol.Schema({
@@ -108,13 +122,17 @@ class BusproModule:
         self.connected = False
         self.hdl = None
         self.gateway_address_send_receive = ((host, port), ('', port))
+        self.scanner = None
+        self.last_scan = None
         self.init_hdl()
 
     def init_hdl(self):
         """Initialize of Buspro object."""
         # noinspection PyUnresolvedReferences
         from .pybuspro.buspro import Buspro
+        from .pybuspro.scanner import BusScanner
         self.hdl = Buspro(self.gateway_address_send_receive, self.hass.loop)
+        self.scanner = BusScanner(self.hdl)
         # self.hdl.register_telegram_received_all_messages_cb(self.telegram_received_cb)
 
     async def start(self):
@@ -163,6 +181,32 @@ class BusproModule:
         else:
             await universal_switch.set_off()
 
+    async def service_scan(self, call: ServiceCall) -> ServiceResponse:
+        """Service for scanning the bus; returns what was found"""
+        # noinspection PyUnresolvedReferences
+        from .pybuspro.scanner import ScanOptions
+
+        if self.scanner.running:
+            raise HomeAssistantError("An HDL bus scan is already running")
+
+        interval = call.data[SERVICE_BUSPRO_ATTR_INTERVAL]
+        options = ScanOptions(
+            search_rounds=call.data[SERVICE_BUSPRO_ATTR_ROUNDS],
+            search_interval=interval,
+            settle_time=interval / 2,
+            read_channel_names=call.data[SERVICE_BUSPRO_ATTR_READ_NAMES],
+            read_mac=call.data[SERVICE_BUSPRO_ATTR_READ_MAC],
+        )
+        _LOGGER.info("Starting HDL bus scan")
+        result = await self.scanner.scan(options)
+        self.last_scan = result
+
+        _LOGGER.info("HDL bus scan found %d devices in %.0f s", len(result.devices), result.duration)
+        for device in result.devices:
+            _LOGGER.debug("Found %s %s '%s' with %d channels", device.address, device.category,
+                          device.remark, len(device.channels))
+        return result.to_dict()
+
     def register_services(self):
 
         """ activate_scene """
@@ -182,6 +226,13 @@ class BusproModule:
             DOMAIN, SERVICE_BUSPRO_UNIVERSAL_SWITCH,
             self.service_set_universal_switch,
             schema=SERVICE_BUSPRO_UNIVERSAL_SWITCH_SCHEMA)
+
+        """ scan """
+        self.hass.services.async_register(
+            DOMAIN, SERVICE_BUSPRO_SCAN,
+            self.service_scan,
+            schema=SERVICE_BUSPRO_SCAN_SCHEMA,
+            supports_response=SupportsResponse.OPTIONAL)
 
     '''
     def telegram_received_cb(self, telegram):

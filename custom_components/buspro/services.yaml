@@ -1,1 +1,35 @@
-
+scan:
+  name: Scan HDL bus
+  description: >-
+    Find HDL Buspro devices, their channels and the names stored in them. Read-only:
+    nothing is switched. Takes about a minute; call it with "return response" to see the result.
+  fields:
+    rounds:
+      name: Search rounds
+      description: How many times to repeat the device search. One round reaches about 87% of devices.
+      default: 4
+      selector:
+        number:
+          min: 1
+          max: 10
+    interval:
+      name: Round length
+      description: Seconds per search round. Devices answer within about 5 seconds.
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 60
+          unit_of_measurement: s
+    read_names:
+      name: Read channel names
+      description: Read the name of every output and curtain channel.
+      default: true
+      selector:
+        boolean:
+    read_mac:
+      name: Read MAC addresses
+      description: Read each device's MAC address, which stays the same when its address changes.
+      default: true
+      selector:
+        boolean:
