@@ -1,0 +1,71 @@
+name: Release
+
+# Actions > Release > Run workflow. Releases the version in manifest.json as tag v<version>,
+# after the tests and the HACS and hassfest validation pass on the same commit.
+on:
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: Mark as pre-release
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Check version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Releases come from main
+        if: github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
+        run: |
+          echo "::error::Run this workflow on ${{ github.event.repository.default_branch }}, not ${{ github.ref_name }}."
+          exit 1
+      - uses: actions/checkout@v4
+      - id: version
+        name: Version from manifest.json, not released yet
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(python3 -c 'import json; print(json.load(open("custom_components/buspro/manifest.json"))["version"])')
+          if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::manifest.json version '$version' is not like 1.2.3."
+            exit 1
+          fi
+          if gh release view "v$version" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 \
+              || git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
+            echo "::error::v$version already exists. Raise the version in custom_components/buspro/manifest.json first."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  tests:
+    needs: version
+    uses: ./.github/workflows/tests.yml
+
+  validate:
+    needs: version
+    uses: ./.github/workflows/validate.yml
+
+  release:
+    name: Create release
+    needs: [version, tests, validate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create v${{ needs.version.outputs.version }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          flags=""
+          if [ "$PRERELEASE" = "true" ]; then flags="--prerelease"; fi
+          gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "v$VERSION" --generate-notes $flags
+          echo "Released [v$VERSION]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/v$VERSION)" >> "$GITHUB_STEP_SUMMARY"

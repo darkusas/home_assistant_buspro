@@ -3,6 +3,7 @@ name: Tests
 on:
   push:
   pull_request:
+  workflow_call:  # run by release.yml before a release
 
 permissions:
   contents: read

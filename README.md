@@ -361,3 +361,8 @@ node tests_frontend/panel_test.cjs [screenshot directory]               # panel 
 GitHub Actions run these three (`.github/workflows/tests.yml`) and the HACS and hassfest validation (`.github/workflows/validate.yml`).
 
 `tools/hdl_probe.py` talks to a real gateway without Home Assistant (scan, read names, test channels).
+
+### Releasing
+
+1. Raise `version` in `custom_components/buspro/manifest.json` and merge it into `main`.
+2. Actions > **Release** > **Run workflow** (on `main`). It runs the tests and the HACS and hassfest validation again, then creates the tag `v<version>` and a GitHub release with notes generated from the merged pull requests. It stops if that version is already released.
