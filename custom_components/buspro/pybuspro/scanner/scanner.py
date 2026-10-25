@@ -68,6 +68,7 @@ class BusScanner:
         self._running = False
         self._session = None
         self._on_progress = None
+        self.type_overrides = {}  # type code -> override set by the user, see ScannedDevice.override
 
     @property
     def running(self):
@@ -116,6 +117,7 @@ class BusScanner:
         if device is None:
             device = self._devices[source] = ScannedDevice(*source)
         device.type_codes[int.from_bytes(telegram.source_device_type_raw, "big")] += 1
+        device.override = self.type_overrides.get(device.type_code)
         code = int.from_bytes(telegram.operate_code_raw, "big")
         device.operate_codes.add(code)
         payload = telegram.payload

@@ -197,3 +197,35 @@ def test_floor_heating_is_probed_on_panels_that_list_it():
 
     assert channels == {"1.42": ["floor_heating"], "1.43": [], "1.60": ["temperature"]}
     assert 0x1944 not in bus.sent_codes((1, 60))
+
+
+def test_type_override_for_unknown_devices():
+    devices = [
+        SimDevice((1, 19), 0x1194, "AS1-2"),  # answers nothing useful
+        SimDevice((1, 20), 0x1195, "Old relay", levels=[0, 100, 0]),  # reports its channels itself
+    ]
+
+    async def run():
+        buspro = Buspro((GATEWAY, ("", 6000)), asyncio.get_running_loop())
+        buspro.network_interface = FakeBus(buspro, devices)
+        scanner = BusScanner(buspro)
+        scanner.type_overrides = {0x1194: {"category": "output_module", "kind": "dimmer", "count": 4},
+                                  0x1195: {"category": "output_module", "kind": "dimmer", "count": 8}}
+        return await scanner.scan(FAST), buspro.network_interface
+
+    result, bus = asyncio.run(run())
+    by_address = {d.address: d for d in result.devices}
+    assert [c.kind for c in by_address["1.19"].channels] == ["dimmer"] * 4
+    assert by_address["1.19"].to_dict()["override"]["count"] == 4
+    assert len(by_address["1.20"].channels) == 3  # the device's own channel count wins
+    assert 0x0033 in bus.sent_codes((1, 19))  # treated as an output module during the scan
+
+
+def test_override_changes_category_after_the_scan():
+    result, _bus, _buspro = scan([SimDevice((1, 19), 0x1194, "AS1-2")])
+    device = result.devices[0]
+    assert device.category == "unknown"
+    device.override = {"category": "curtain_module", "count": 2}
+    assert [(c.number, c.kind) for c in device.channels] == [(1, "curtain"), (2, "curtain")]
+    device.override = None
+    assert device.category == "unknown"

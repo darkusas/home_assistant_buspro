@@ -1,6 +1,6 @@
 # HDL Buspro įrenginių skanavimo ir pridėjimo įrankis — įgyvendinimo planas
 
-Būsena (2026-10-25): **etapai 0–6 atlikti** (6: `cover`, `sensor`, `binary_sensor`, universal switch, DLP grindų šildymas `climate`): skaneris ir testavimas (`pybuspro/scanner/`, servisai `buspro.scan` ir `buspro.test_channel`, `tools/hdl_probe.py scan|set|pulse`), entity iš skenavimo (`storage.py`, `switch`/`light` `async_setup_entry`), šoninis skydelis (`frontend/buspro-panel.js`, `panel.py`, WS `buspro/*` komandos `websocket_api.py`). Etapo 0 rezultatai pagal du Setup Tool 2 Wireshark įrašus — `docs/protocol-captures/2026-10-25-analysis.md` (jie turi pirmenybę prieš 2 skyriaus spėjimus).
+Būsena (2026-10-25): **etapai 0–7 atlikti** (6: `cover`, `sensor`, `binary_sensor`, universal switch, DLP grindų šildymas `climate`; 7: tipo nurodymas ranka, Repairs įspėjimas, diagnostika, lt/en vertimai, CI): skaneris ir testavimas (`pybuspro/scanner/`, servisai `buspro.scan` ir `buspro.test_channel`, `tools/hdl_probe.py scan|set|pulse`), entity iš skenavimo (`storage.py`, `switch`/`light` `async_setup_entry`), šoninis skydelis (`frontend/buspro-panel.js`, `panel.py`, WS `buspro/*` komandos `websocket_api.py`). Etapo 0 rezultatai pagal du Setup Tool 2 Wireshark įrašus — `docs/protocol-captures/2026-10-25-analysis.md` (jie turi pirmenybę prieš 2 skyriaus spėjimus).
 
 ## 1. Tikslas
 
@@ -191,12 +191,21 @@ Dydžiai: **S** ≈ pusdienis, **M** ≈ 1–2 d., **L** ≈ 3+ d. (apytiksliai,
 - DLP šildymo skaitymas (`0x1945`, `0x1947`) patvirtintas įrašais; valdymas (`0x1946`) — pagal oficialų sąrašą, su tikra įranga dar nebandytas.
 - Atidėta, nes trūksta patvirtintų duomenų: grindų šildymo modulio (`00CF`) valdymas — įraše nėra `0x1C5C`; temperatūros modulio (`0086`) kanalai (`0x1948/0x1949`); sausų kontaktų įėjimų moduliai (`016E/016F`) — nežinoma, kaip jie praneša pokyčius; kai kurių jutiklių (`0155/0156`) judesio pranešimo būdas — įrašuose jie judesio nesiuntė.
 
+### Etapo 7 rezultatai
+
+- Tipo nurodymas ranka: skydelio skiltis „Pakeisti tipą“ (atidaryta nežinomiems įrenginiams), WS `buspro/type_override/set|remove`, saugoma `.storage/buspro.type_overrides` pagal tipo kodą ir taikoma visiems to tipo įrenginiams — iškart paskutiniam skanavimui ir kitiems skanavimams (skaneris tada skaito jų kanalus kaip išėjimų ar užuolaidų modulio). Nežinomų įrenginių sąraše rodomas tipo kodas.
+- Repairs: `udp_port_unavailable`, kai nepavyksta atidaryti UDP prievado (pvz. užimtas Setup Tool); dingsta, kai prievadas atsidaro.
+- Diagnostika: config entry (be šliuzo adreso), paskutinis skanavimas (be MAC), nežinomi tipų kodai su kiekiais, ranka nurodyti tipai, iš skydelio pridėti entity.
+- Vertimai `strings.json`, `translations/en.json`, `translations/lt.json`: konfigūracija, Repairs įspėjimas ir visi penki servisai (`services.yaml` liko tik laukai ir selektoriai). Servisai `scan`, `test_channel` tikrina, ar kvietėjas administratorius.
+- `manifest.json` 1.2.0, nuorodos į šį repozitoriją; `hacs.json` `homeassistant: 2024.7.0`.
+- CI `.github/workflows/tests.yml`: bibliotekos `pytest`, HA `pytest tests_ha`, skydelio testas Chromium. `hassfest` ir HACS validacija neįtraukti — jų nepavyko paleisti be tinklo; galima pridėti vėliau (`home-assistant/actions/hassfest`, `hacs/action`).
+
 ## 9. Testavimo strategija
 
 - `tests/fakebus.py` — atmintyje esantis UDP pakaitalas su simuliuotais įrenginiais (atsakinėja `0x0033/0x0031/0x000E/0xF00E/0xE548…`, gali „ignoruoti broadcast `0x0033`", gali neatsakyti, gali siųsti `0x0032` broadcast'ą).
 - `pytest` vienetiniai: telegramų parsing/CRC, `0xE549` parseris, remark dekoderis (utf-8/cp1257), skanerio fazės, testo patvirtinimas/impulsas, išskyrimo sąrašo rotacija.
 - HA lygis su `pytest-homeassistant-custom-component`: WS komandos (admin-only), platformų `async_setup_entry`, dinaminis pridėjimas/šalinimas, `unique_id` dublikatai, `Store` migracija.
-- CI (GitHub Actions): `pytest`, `hassfest`, HACS validation.
+- CI (GitHub Actions): `pytest`, `pytest tests_ha`, skydelio testas Chromium (`.github/workflows/tests.yml`); `hassfest`, HACS validation — vėliau.
 - **Rankinis sąrašas su tikra įranga**: (1) skanas randa visus žinomus įrenginius; (2) pavadinimai sutampa su Setup Tool; (3) ON/OFF fiziškai perjungia; (4) fizinio jungiklio paspaudimas atsispindi UI; (5) HA restartas — entity išlieka ir turi būseną; (6) skanavimas nesutrikdo veikiančių entity.
 
 ## 10. Rizikos, atviri klausimai

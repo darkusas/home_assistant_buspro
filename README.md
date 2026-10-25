@@ -37,6 +37,15 @@ Reading the DLP floor heating is confirmed with captures of real installations; 
 
 Channels already configured in YAML are marked and cannot be added a second time. Added entities are stored in `.storage/buspro.entities` and can be removed from the panel.
 
+A device the scan cannot recognise is listed as *Unknown* with its type code (see *All devices*). Under **Change type** you can say what it is (output module with relay or dimmer channels and their number, curtain module, sensor, panel, logic module or gateway); this applies to every device with the same type code, is kept in `.storage/buspro.type_overrides` and can be undone with **Back to automatic**. Please report such type codes in an issue, with the diagnostics attached, so they are recognised for everyone.
+
+### Troubleshooting
+
+- **Repairs shows "HDL Buspro cannot open UDP port 6000"**: another program already uses the port, often HDL Buspro Setup Tool on the same computer, another integration or a second Home Assistant instance. Close it and restart Home Assistant.
+- **The scan finds nothing**: Home Assistant has to receive the gateway's broadcasts. In Docker run the container with host networking (`network_mode: host`); in a virtual machine use a bridged network adapter, not NAT. The gateway and Home Assistant have to be in the same subnet.
+- **Some devices are missing**: a busy bus drops answers; choose *Thorough (6 rounds)*.
+- **Diagnostics** (Settings > Devices & services > HDL Buspro > ⋮ > Download diagnostics) contain the last scan, unknown type codes, types set by hand and the entities added from the panel, with MAC addresses and the gateway address removed.
+
 ## Configuration
 
 #### Light platform

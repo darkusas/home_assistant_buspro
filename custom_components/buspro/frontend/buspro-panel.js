@@ -65,6 +65,18 @@ const STRINGS = {
     noChannels: "Šis įrenginys neturi kanalų, kuriuos būtų galima pridėti.",
     unnamed: "Kanalas {n}",
     error: "Klaida: {message}",
+    override: "Pakeisti tipą",
+    overrideHelp: "Jei įrenginys neatpažintas arba atpažintas neteisingai, nurodykite, kas tai yra. Taikoma visiems {code} tipo įrenginiams.",
+    overrideCategory: "Tipas",
+    overrideKind: "Kanalų tipas",
+    overrideCount: "Kanalų sk.",
+    overrideCurtains: "Užuolaidų sk.",
+    overrideSave: "Išsaugoti tipą",
+    overrideReset: "Grąžinti automatinį",
+    overrideSaved: "Tipas {code} išsaugotas.",
+    overrideRemoved: "Tipui {code} vėl naudojamas automatinis atpažinimas.",
+    overrideBadCount: "Kanalų skaičius turi būti nuo 1 iki 64.",
+    manualType: "rankinis tipas",
     // Messages from the integration, which are in English.
     serverErrors: {
       "No answer from the device": "Įrenginys neatsakė",
@@ -137,10 +149,25 @@ const STRINGS = {
     noChannels: "This device has no channels that can be added.",
     unnamed: "Channel {n}",
     error: "Error: {message}",
+    override: "Change type",
+    overrideHelp: "If the device is not recognised, or recognised wrongly, say what it is. Applies to every device of type {code}.",
+    overrideCategory: "Type",
+    overrideKind: "Channel type",
+    overrideCount: "Channels",
+    overrideCurtains: "Curtains",
+    overrideSave: "Save type",
+    overrideReset: "Back to automatic",
+    overrideSaved: "Type {code} saved.",
+    overrideRemoved: "Type {code} is recognised automatically again.",
+    overrideBadCount: "The number of channels must be from 1 to 64.",
+    manualType: "set by hand",
   },
 };
 
 const OUTPUT_KINDS = ["relay", "dimmer", "dmx", "output"];
+// What a device type can be set to by hand (buspro/type_override/set).
+const OVERRIDE_CATEGORIES = ["output_module", "curtain_module", "sensor", "panel", "logic", "gateway"];
+const COUNTED_CATEGORIES = ["output_module", "curtain_module"];
 const WARNING_KEY = "buspro-test-warning-accepted";
 
 function format(text, values = {}) {
@@ -289,6 +316,7 @@ class BusproPanel extends HTMLElement {
     this._liveCells = {};
     this._resetLive();
     this._universal = { number: "", name: "" };
+    this._overrideEdits = {}; // type code -> {category, kind, count, open}
     this._banner = null;
     this._unsubScan = null;
     this._unsubState = null;
@@ -628,6 +656,8 @@ class BusproPanel extends HTMLElement {
     for (const device of this._devices()) {
       const added = device.channels.filter((c) => c.entity).length;
       const meta = [t.categories[device.category] || device.category];
+      if (device.category === "unknown" && device.type_code) meta.push(device.type_code);
+      if (device.override) meta.push(t.manualType);
       if (device.channels.length) meta.push(format(t.channelsShort, { n: device.channels.length }));
       if (added) meta.push(format(t.addedShort, { n: added }));
       list.append(el("button", {
@@ -650,8 +680,8 @@ class BusproPanel extends HTMLElement {
     this._universalCells = {};
     if (!device) return el("section", { class: "card empty", text: t.selectDevice });
 
-    const facts = [t.categories[device.category] || device.category, device.type_code, device.mac && `MAC ${device.mac}`]
-      .filter(Boolean).join(" · ");
+    const facts = [t.categories[device.category] || device.category, device.override && t.manualType, device.type_code,
+      device.mac && `MAC ${device.mac}`].filter(Boolean).join(" · ");
     const head = el("div", { class: "card-head" }, [
       el("div", {}, [el("h2", { text: `${device.address} · ${device.remark || "—"}` }),
         el("div", { class: "muted", text: facts })]),
@@ -666,8 +696,94 @@ class BusproPanel extends HTMLElement {
     } else {
       section.append(el("div", { class: "info", text: t.noChannels }));
     }
+    if (device.type_code && device.category !== "software") section.append(this._renderOverride(device));
     if (!["gateway", "software"].includes(device.category)) section.append(this._renderUniversal(device));
     return section;
+  }
+
+  _overrideEdit(device) {
+    const code = device.type_code;
+    if (!this._overrideEdits[code]) {
+      const current = device.override || {};
+      const counted = COUNTED_CATEGORIES.includes(device.category) && device.channels.length;
+      this._overrideEdits[code] = {
+        category: current.category || (OVERRIDE_CATEGORIES.includes(device.category) ? device.category : "output_module"),
+        kind: current.kind || "relay",
+        count: String(current.count || counted || ""),
+        // Open where it is needed: devices the scan could not classify, or set by hand already.
+        open: Boolean(device.override || device.category === "unknown"),
+      };
+    }
+    return this._overrideEdits[code];
+  }
+
+  _renderOverride(device) {
+    const t = this.t;
+    const edit = this._overrideEdit(device);
+    const categorySelect = el("select", {
+      "aria-label": "override category",
+      onchange: (e) => { edit.category = e.target.value; this._render(); },
+    }, OVERRIDE_CATEGORIES.map((category) =>
+      el("option", { value: category, selected: edit.category === category, text: t.categories[category] })));
+    const kindSelect = el("select", {
+      "aria-label": "override kind", onchange: (e) => { edit.kind = e.target.value; },
+    }, ["relay", "dimmer"].map((kind) => el("option", { value: kind, selected: edit.kind === kind, text: t.kinds[kind] })));
+    const countInput = el("input", {
+      type: "number", min: "1", max: "64", value: edit.count, "aria-label": "override count",
+      oninput: (e) => { edit.count = e.target.value; },
+    });
+    return el("details", {
+      class: "universal override", open: edit.open, ontoggle: (e) => { edit.open = e.target.open; },
+    }, [
+      el("summary", { text: t.override }),
+      el("div", { class: "note", text: format(t.overrideHelp, { code: device.type_code }) }),
+      el("div", { class: "row" }, [
+        el("label", {}, [`${t.overrideCategory} `, categorySelect]),
+        edit.category === "output_module" ? el("label", {}, [`${t.overrideKind} `, kindSelect]) : null,
+        COUNTED_CATEGORIES.includes(edit.category)
+          ? el("label", {}, [`${edit.category === "curtain_module" ? t.overrideCurtains : t.overrideCount} `, countInput])
+          : null,
+        el("button", { class: "small primary", onclick: () => this._saveOverride(device), text: t.overrideSave }),
+        device.override
+          ? el("button", { class: "small", onclick: () => this._removeOverride(device), text: t.overrideReset })
+          : null,
+      ]),
+    ]);
+  }
+
+  async _saveOverride(device) {
+    const t = this.t;
+    const edit = this._overrideEdit(device);
+    const message = { type: "buspro/type_override/set", type_code: device.type_code, category: edit.category };
+    if (edit.category === "output_module") message.kind = edit.kind;
+    if (COUNTED_CATEGORIES.includes(edit.category) && edit.count !== "") {
+      const count = Number(edit.count);
+      if (!Number.isInteger(count) || count < 1 || count > 64) {
+        this._banner = { text: t.overrideBadCount, error: true };
+        this._render();
+        return;
+      }
+      message.count = count;
+    }
+    try {
+      await this._hass.callWS(message);
+      this._banner = { text: format(t.overrideSaved, { code: device.type_code }) };
+    } catch (err) {
+      this._showError(err);
+    }
+    await this._load();
+    this._refresh();  // the new channels' state
+  }
+
+  async _removeOverride(device) {
+    try {
+      await this._hass.callWS({ type: "buspro/type_override/remove", type_code: device.type_code });
+      delete this._overrideEdits[device.type_code];
+      this._banner = { text: format(this.t.overrideRemoved, { code: device.type_code }) };
+    } catch (err) {
+      this._showError(err);
+    }
+    await this._load();
   }
 
   _renderOutputTable(device) {

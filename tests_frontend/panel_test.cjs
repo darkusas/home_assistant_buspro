@@ -42,7 +42,9 @@ function installMockHass() {
         functions: [[4, 1, 8], [8, 1, 1]], channels: [feature("floor_heating", 1, "floor_heating")] },
       { address: "56.54", type_code: "0x0453", category: "logic", remark: "Logika", mac: null, functions: null,
         channels: [] },
-    ].map((d) => ({ universal_switches: [], ...d })),
+      { address: "1.19", type_code: "0x1194", category: "unknown", remark: "AS1-2", mac: null, functions: null,
+        channels: [] },
+    ].map((d) => ({ universal_switches: [], override: null, ...d })),
   };
   const subscriptions = {};
   let scanned = false;
@@ -101,6 +103,26 @@ function installMockHass() {
         keys.push(key);
       }
       return { added: keys, rejected: [] };
+    },
+    // Like the server: the type applies to every device of that type code.
+    "buspro/type_override/set": (msg) => {
+      const override = { category: msg.category };
+      if (msg.category === "output_module") override.kind = msg.kind;
+      if (msg.count) override.count = msg.count;
+      for (const d of scan.devices.filter((x) => x.type_code === msg.type_code)) {
+        d.override = override;
+        d.category = msg.category;
+        d.channels = msg.category === "output_module"
+          ? Array.from({ length: msg.count }, (_, i) => ({ number: i + 1, kind: msg.kind, name: null, level: 0, entity: null }))
+          : [];
+      }
+      return { type_code: msg.type_code, override };
+    },
+    "buspro/type_override/remove": (msg) => {
+      for (const d of scan.devices.filter((x) => x.type_code === msg.type_code)) {
+        Object.assign(d, { override: null, category: "unknown", channels: [] });
+      }
+      return null;
     },
     "buspro/entities/remove": (msg) => {
       for (const d of scan.devices) {
@@ -168,7 +190,7 @@ async function main() {
   await panel.getByText("1.89 · Rėlės 1 aukštas").waitFor();
   assert.strictEqual(await panel.locator(".device").count(), 2);
   await panel.getByLabel("filter").selectOption("all");
-  assert.strictEqual(await panel.locator(".device").count(), 6);
+  assert.strictEqual(await panel.locator(".device").count(), 7);
 
   // Relay module: names from the device, live state, YAML channel locked.
   await panel.getByText("1.89 · Rėlės 1 aukštas").click();
@@ -281,6 +303,34 @@ async function main() {
     [["universal_switch", "switch", 100, "Režimas"]]);
   assert.strictEqual(await panel.getByLabel("universal switch number").inputValue(), "");  // ready for the next one
   await shot("7-universal");
+
+  // Unknown device: its type code is shown and its type can be set by hand.
+  await panel.locator(".device", { hasText: "1.19 · AS1-2" }).getByText("Nežinomas · 0x1194").waitFor();
+  await panel.getByText("1.19 · AS1-2").click();
+  await panel.getByText("Taikoma visiems 0x1194 tipo įrenginiams").waitFor();  // open for unknown devices
+  assert.strictEqual(await panel.getByLabel("override category").inputValue(), "output_module");
+  await panel.getByLabel("override category").selectOption("curtain_module");
+  await panel.getByText("Užuolaidų sk.").waitFor();
+  assert.strictEqual(await panel.getByLabel("override kind").count(), 0);  // relay/dimmer is for output modules
+  await panel.getByLabel("override category").selectOption("output_module");
+  await panel.getByLabel("override kind").selectOption("dimmer");
+  await panel.getByLabel("override count").fill("99");
+  await panel.getByRole("button", { name: "Išsaugoti tipą" }).click();
+  await panel.getByText("Kanalų skaičius turi būti nuo 1 iki 64.").waitFor();
+  assert.strictEqual((await calls("buspro/type_override/set")).length, 0);
+  await panel.getByLabel("override count").fill("4");
+  await panel.getByRole("button", { name: "Išsaugoti tipą" }).click();
+  await panel.getByText("Tipas 0x1194 išsaugotas.").waitFor();
+  assert.deepStrictEqual((await calls("buspro/type_override/set")).map(({ id, ...m }) => m), [
+    { type: "buspro/type_override/set", type_code: "0x1194", category: "output_module", kind: "dimmer", count: 4 }]);
+  await panel.getByText("Išėjimų modulis · rankinis tipas · 0x1194").waitFor();
+  assert.strictEqual(await panel.locator("table.outputs tbody tr").count(), 4);
+  assert.strictEqual(await panel.getByLabel("type 1").inputValue(), "light");  // dimmer channels default to lights
+  await shot("8-override");
+  await panel.getByRole("button", { name: "Grąžinti automatinį" }).click();
+  await panel.getByText("Tipui 0x1194 vėl naudojamas automatinis atpažinimas.").waitFor();
+  await panel.getByText("Šis įrenginys neturi kanalų").waitFor();
+  assert.deepStrictEqual((await calls("buspro/type_override/remove")).map((m) => m.type_code), ["0x1194"]);
 
   // Dark theme and phone width, for the screenshots.
   await panel.getByText("1.89 · Rėlės 1 aukštas").click();

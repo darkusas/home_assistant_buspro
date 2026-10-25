@@ -10,7 +10,7 @@ from homeassistant.helpers import config_validation as cv, entity_registry as er
 
 from .address_validation import parse_device_address
 from .const import DOMAIN
-from .storage import KIND_PLATFORMS, PLATFORMS_IN_USE, SENSOR_KINDS, EntitySpec
+from .storage import KIND_PLATFORMS, OVERRIDE_CATEGORIES, PLATFORMS_IN_USE, SENSOR_KINDS, EntitySpec
 
 ENTITY_SCHEMA = vol.Schema({
     vol.Optional("kind", default="output"): vol.In(list(KIND_PLATFORMS)),
@@ -38,7 +38,8 @@ TEST_ACTIONS = ["on", "off", "level", "pulse", "open", "close", "stop"]
 @callback
 def async_register(hass: HomeAssistant) -> None:
     for command in (ws_list_entities, ws_add_entities, ws_remove_entities, ws_devices, ws_scan_start,
-                    ws_scan_subscribe, ws_channel_test, ws_device_refresh, ws_state_subscribe):
+                    ws_scan_subscribe, ws_channel_test, ws_device_refresh, ws_state_subscribe,
+                    ws_set_type_override, ws_remove_type_override):
         websocket_api.async_register_command(hass, command)
 
 
@@ -289,3 +290,37 @@ def ws_state_subscribe(hass: HomeAssistant, connection: websocket_api.ActiveConn
     connection.send_result(msg["id"])
     pending.extend(monitor.snapshot(msg["address"]))
     flush()
+
+
+TYPE_CODE = vol.All(cv.string, vol.Match(r"^0x[0-9A-Fa-f]{1,4}$"), lambda value: int(value, 16))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "buspro/type_override/set",
+    vol.Required("type_code"): TYPE_CODE,
+    vol.Required("category"): vol.In(OVERRIDE_CATEGORIES),
+    vol.Optional("kind", default="relay"): vol.In(["relay", "dimmer"]),
+    vol.Optional("count"): vol.All(vol.Coerce(int), vol.Range(min=1, max=64)),
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_type_override(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict) -> None:
+    """Say what a device type is; it applies to every device of that type."""
+    override = {"category": msg["category"]}
+    if msg["category"] == "output_module":
+        override["kind"] = msg["kind"]
+    if msg["category"] in ("output_module", "curtain_module") and "count" in msg:
+        override["count"] = msg["count"]
+    await hass.data[DOMAIN].async_set_type_override(msg["type_code"], override)
+    connection.send_result(msg["id"], {"type_code": f"0x{msg['type_code']:04X}", "override": override})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "buspro/type_override/remove",
+    vol.Required("type_code"): TYPE_CODE,
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_remove_type_override(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict) -> None:
+    await hass.data[DOMAIN].async_set_type_override(msg["type_code"], None)
+    connection.send_result(msg["id"])

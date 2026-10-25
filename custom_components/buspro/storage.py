@@ -135,3 +135,27 @@ class EntityStore:
 
     async def _save(self) -> None:
         await self._store.async_save({"entities": [spec.as_dict() for spec in self._specs.values()]})
+
+
+TYPE_OVERRIDES_KEY = "buspro.type_overrides"
+OVERRIDE_CATEGORIES = ("output_module", "curtain_module", "sensor", "panel", "logic", "gateway")
+
+
+class TypeOverrideStore:
+    """What the user said a device type is, for types the scan cannot classify (or gets wrong)."""
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self._store = Store(hass, STORAGE_VERSION, TYPE_OVERRIDES_KEY)
+        self.overrides: dict[int, dict] = {}
+
+    async def async_load(self) -> None:
+        data = await self._store.async_load() or {}
+        self.overrides = {int(code, 16): override for code, override in data.get("overrides", {}).items()}
+
+    async def async_set(self, type_code: int, override: dict | None) -> None:
+        if override is None:
+            self.overrides.pop(type_code, None)
+        else:
+            self.overrides[type_code] = override
+        await self._store.async_save(
+            {"overrides": {f"0x{code:04X}": value for code, value in sorted(self.overrides.items())}})

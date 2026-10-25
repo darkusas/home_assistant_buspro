@@ -18,10 +18,9 @@ from homeassistant.const import (
     EVENT_HOMEASSISTANT_STOP,
 )
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
-from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.exceptions import HomeAssistantError, Unauthorized, UnknownUser
+from homeassistant.helpers import device_registry as dr, entity_registry as er, issue_registry as ir
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.config_entries import ConfigEntry
 
 from .address_validation import parse_device_address
@@ -108,6 +107,24 @@ SERVICE_BUSPRO_TEST_CHANNEL_SCHEMA = vol.Schema({
     vol.Optional(SERVICE_BUSPRO_ATTR_DURATION, default=2): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=30)),
 })
 
+ISSUE_UDP_PORT = "udp_port_unavailable"
+
+
+def _register_admin_service(hass, service, handler, schema, supports_response):
+    """Like HA's async_register_admin_service, which takes supports_response only in newer versions."""
+
+    async def admin_only(call: ServiceCall):
+        if call.context.user_id:
+            user = await hass.auth.async_get_user(call.context.user_id)
+            if user is None:
+                raise UnknownUser(context=call.context)
+            if not user.is_admin:
+                raise Unauthorized(context=call.context)
+        return await handler(call)
+
+    hass.services.async_register(DOMAIN, service, admin_only, schema=schema, supports_response=supports_response)
+
+
 CONFIG_SCHEMA = vol.Schema({
     DOMAIN: vol.Schema({
         vol.Required(CONF_HOST): cv.string,
@@ -171,6 +188,7 @@ class BusproModule:
         self.last_scan = None
         self.config_entry = None
         self.entity_store = None
+        self.type_override_store = None
         self.scan_progress = None
         self._scan_listeners = []
         self._panel_registered = False
@@ -190,12 +208,15 @@ class BusproModule:
     async def async_setup_entry(self, config_entry):
         """Load the entities added from the bus scan and register the panel's API."""
         from . import websocket_api
-        from .storage import EntityStore
+        from .storage import EntityStore, TypeOverrideStore
 
         self.config_entry = config_entry
         if self.entity_store is None:
             self.entity_store = EntityStore(self.hass)
             await self.entity_store.async_load()
+            self.type_override_store = TypeOverrideStore(self.hass)
+            await self.type_override_store.async_load()
+            self.scanner.type_overrides = dict(self.type_override_store.overrides)
             websocket_api.async_register(self.hass)
         if not self._panel_registered:
             from . import panel
@@ -223,6 +244,15 @@ class BusproModule:
             return {"key": probe.key, "source": "yaml", "platform": yaml_entity_id.split(".")[0],
                     "entity_id": yaml_entity_id, "name": None}
         return None
+
+    async def async_set_type_override(self, type_code, override):
+        """Store (or with None, forget) what a device type is; applies to the last scan right away."""
+        await self.type_override_store.async_set(type_code, override)
+        self.scanner.type_overrides = dict(self.type_override_store.overrides)
+        if self.last_scan is not None:
+            for device in self.last_scan.devices:
+                if device.type_code == type_code:
+                    device.override = override
 
     def sensor_read_method(self, subnet_id, device_id, device_model, device_category=None):
         """How pybuspro's Sensor should ask this device for its readings."""
@@ -296,6 +326,17 @@ class BusproModule:
         await self.hdl.start(state_updater=False)
         self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, self.stop)
         self.connected = True
+        self._report_udp_socket()
+
+    def _report_udp_socket(self):
+        """Show a repair issue when the UDP port could not be opened; nothing reaches the bus then."""
+        udp_client = self.hdl.network_interface.udp_client if self.hdl.network_interface else None
+        port = self.gateway_address_send_receive[1][1]
+        if udp_client is not None and udp_client.transport is None:
+            ir.async_create_issue(self.hass, DOMAIN, ISSUE_UDP_PORT, is_fixable=False, severity=ir.IssueSeverity.ERROR,
+                                  translation_key=ISSUE_UDP_PORT, translation_placeholders={"port": str(port)})
+        else:
+            ir.async_delete_issue(self.hass, DOMAIN, ISSUE_UDP_PORT)
 
     # noinspection PyUnusedLocal
     async def stop(self, event):
@@ -450,15 +491,15 @@ class BusproModule:
             schema=SERVICE_BUSPRO_UNIVERSAL_SWITCH_SCHEMA)
 
         """ scan """
-        async_register_admin_service(
-            self.hass, DOMAIN, SERVICE_BUSPRO_SCAN,
+        _register_admin_service(
+            self.hass, SERVICE_BUSPRO_SCAN,
             self.service_scan,
             schema=SERVICE_BUSPRO_SCAN_SCHEMA,
             supports_response=SupportsResponse.OPTIONAL)
 
         """ test_channel: switches real loads, so admins only """
-        async_register_admin_service(
-            self.hass, DOMAIN, SERVICE_BUSPRO_TEST_CHANNEL,
+        _register_admin_service(
+            self.hass, SERVICE_BUSPRO_TEST_CHANNEL,
             self.service_test_channel,
             schema=SERVICE_BUSPRO_TEST_CHANNEL_SCHEMA,
             supports_response=SupportsResponse.OPTIONAL)

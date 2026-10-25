@@ -44,6 +44,8 @@ class ScannedDevice:
     levels: dict = field(default_factory=dict)  # channel -> 0..100
     channel_names: dict = field(default_factory=dict)  # channel -> name, None if unnamed
     operate_codes: set = field(default_factory=set)  # every code heard from the device
+    # Set by the user for the device's type: {"category": ..., "kind": "relay"/"dimmer", "count": n}
+    override: dict = None
 
     @property
     def address(self):
@@ -61,6 +63,8 @@ class ScannedDevice:
     def category(self):
         if self.type_codes and all(code in SOFTWARE_TYPES for code in self.type_codes):
             return SOFTWARE
+        if self.override:
+            return self.override["category"]
         if self.functions:
             category = self._category_from_functions()
             if category != UNKNOWN:
@@ -100,7 +104,10 @@ class ScannedDevice:
 
     @property
     def curtain_count(self):
-        return sum(f.count for f in self._functions(BIG_CURTAIN))
+        return sum(f.count for f in self._functions(BIG_CURTAIN)) or self._override_count()
+
+    def _override_count(self):
+        return int((self.override or {}).get("count") or 0)
 
     def channel_numbers_with_names(self):
         """Channel numbers whose remark (0xF00E) is worth reading."""
@@ -113,11 +120,13 @@ class ScannedDevice:
         return []
 
     def _output_count(self):
-        return self.channel_count or sum(f.count for f in self._functions(BIG_OUTPUT))
+        return self.channel_count or sum(f.count for f in self._functions(BIG_OUTPUT)) or self._override_count()
 
     def _output_kinds(self):
         count = self._output_count()
         kinds = [f.category for f in self._functions(BIG_OUTPUT) for _ in range(f.count)][:count]
+        if not kinds and self.override and self.override.get("kind"):
+            return [self.override["kind"]] * count
         for number in range(len(kinds) + 1, count + 1):
             level = self.levels.get(number)
             kinds.append("dimmer" if level is not None and level not in (0, 100) else "relay")
@@ -174,6 +183,7 @@ class ScannedDevice:
             "remark": self.remark,
             "mac": self.mac,
             "functions": None if self.functions is None else [[f.big, f.small, f.count] for f in self.functions],
+            "override": self.override,
             "channels": [channel.to_dict() for channel in self.channels],
             "operate_codes": sorted(f"0x{code:04X}" for code in self.operate_codes),
         }
