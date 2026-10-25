@@ -249,6 +249,14 @@ Service Data: {"rounds": 4, "interval": 10}
 ```
 Finds HDL devices, their channels and the names stored in them (read-only, takes about a minute). Call it with "return response" in Developer tools to see the result; the last result is also included in the integration's diagnostics. The same scan can be run without Home Assistant from any PC in the gateway's network: `python tools/hdl_probe.py --gateway <ip> scan`.
 
+#### Testing a channel before adding it:
+```
+Domain: buspro
+Service: test_channel
+Service Data: {"address": "1.89", "channel": 3, "action": "pulse", "duration": 2}
+```
+Switches a channel directly on the bus and returns what the device answered (`confirmed`, `value`, `confirmed_by`, `latency`). Actions: `on`, `off`, `level` (with `level`), `pulse` (on for `duration` seconds, then back to the previous level); with `"target": "curtain"`: `open`, `close`, `stop`; with `"target": "universal_switch"`: `on`, `off`. This switches the real load. Only administrators can call `scan` and `test_channel`. Pulses still running when Home Assistant stops are restored first.
+
 #### Setting an universal switch:
 ```
 Domain: buspro

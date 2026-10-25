@@ -24,7 +24,7 @@ def remark_bytes(text):
 class SimDevice:
     def __init__(self, address, type_code, remark=None, mac=None, functions=None, levels=None,
                  channel_names=None, answers_search=True, missed_searches=0, answers_remark=True,
-                 broadcasts=()):
+                 broadcasts=(), confirms=True, fails=False, curtains=None, universal_switches=None):
         self.address = address
         self.type_code = type_code
         self.remark = remark
@@ -36,6 +36,10 @@ class SimDevice:
         self.missed_searches = missed_searches  # broadcast 0x000E rounds to ignore, like a busy bus
         self.answers_remark = answers_remark
         self.broadcasts = broadcasts  # [(operate_code, payload)] sent once when the bus starts
+        self.confirms = confirms  # broadcast 0x0032 after 0x0031
+        self.fails = fails  # answer 0x0031 with 0xF5 and do not switch
+        self.curtains = curtains  # curtain -> status (0 stop, 1 open, 2 close)
+        self.universal_switches = universal_switches  # switch -> bool
         self.received = []
 
     def reply(self, operate_code, payload, target):
@@ -73,12 +77,24 @@ class SimDevice:
         if code == 0x0033 and self.levels is not None:
             return [self.reply(0x0034, [len(self.levels)] + self.levels, source)]
         if code == 0x0031 and self.levels is not None and 1 <= payload[0] <= len(self.levels):
-            self.levels[payload[0] - 1] = payload[1]
+            if not self.fails:
+                self.levels[payload[0] - 1] = payload[1]
             mask = [0] * ((len(self.levels) + 7) // 8)
             for index, level in enumerate(self.levels):
                 if level:
                     mask[index // 8] |= 1 << (index % 8)
-            return [self.reply(0x0032, [payload[0], 0xF8, payload[1], len(self.levels)] + mask, BROADCAST)]
+            answer = [payload[0], 0xF5 if self.fails else 0xF8, self.levels[payload[0] - 1], len(self.levels)]
+            return [self.reply(0x0032, answer + mask, BROADCAST)] if self.confirms else []
+        if code == 0xE3E0 and self.curtains is not None and payload[0] in self.curtains:
+            self.curtains[payload[0]] = payload[1]
+            return [self.reply(0xE3E1, [payload[0], payload[1]], BROADCAST)] if self.confirms else []
+        if code == 0xE3E2 and self.curtains is not None and payload[0] in self.curtains:
+            return [self.reply(0xE3E3, [payload[0], self.curtains[payload[0]]], source)]
+        if code == 0xE01C and self.universal_switches is not None:
+            self.universal_switches[payload[0]] = payload[1] == 255
+            return [self.reply(0xE01D, [payload[0], 1 if payload[1] == 255 else 0], BROADCAST)]
+        if code == 0xE018 and self.universal_switches is not None and payload[0] in self.universal_switches:
+            return [self.reply(0xE019, [payload[0], 1 if self.universal_switches[payload[0]] else 0], source)]
         if code == 0xF003:
             return [self.reply(0xF004, list(self.mac), source)]
         if code == 0xF00E and payload and payload[0] in self.channel_names:

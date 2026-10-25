@@ -2,8 +2,8 @@
 """HDL Buspro probe for protocol verification (docs/device-scan-plan.md, stage 0).
 
 Runs on any PC in the same LAN as the HDL IP gateway; Home Assistant is not needed.
-"scan", "remark", "channels", "channel-remarks" and "module" are read-only; "raw" sends
-whatever you give it. Every received telegram is printed and, with --log, appended
+"scan", "remark", "channels", "channel-remarks" and "module" are read-only; "set" and
+"pulse" switch real loads (after asking), "raw" sends whatever you give it. Every received telegram is printed and, with --log, appended
 to a JSON Lines file that can be attached to docs/protocol-captures/.
 
   python tools/hdl_probe.py --gateway 192.168.1.10 listen --seconds 30
@@ -12,6 +12,9 @@ to a JSON Lines file that can be attached to docs/protocol-captures/.
   python tools/hdl_probe.py --gateway 192.168.1.10 channel-remarks 1.89
   python tools/hdl_probe.py --gateway 192.168.1.10 module            # broadcast 0xE548
   python tools/hdl_probe.py --gateway 192.168.1.10 scan --json scan.json   # what Home Assistant's scan finds
+  python tools/hdl_probe.py --gateway 192.168.1.10 pulse 1.89 3 --seconds 2   # on, then back
+  python tools/hdl_probe.py --gateway 192.168.1.10 set 1.89 3 off
+  python tools/hdl_probe.py --gateway 192.168.1.10 set 1.40 1 open --target curtain
   python tools/hdl_probe.py --gateway 192.168.1.10 raw 1.89 0xF00E 1
   tshark -r capture.pcapng -Y "udp.port==6000" -T fields -e udp.payload | python tools/hdl_probe.py decode -
 
@@ -32,7 +35,10 @@ from pybuspro.buspro import BROADCAST_ADDRESS, Buspro  # noqa: E402
 from pybuspro.helpers.enums import OperateCode  # noqa: E402
 from pybuspro.helpers.generics import Generics  # noqa: E402
 from pybuspro.helpers.telegram_helper import TelegramHelper  # noqa: E402
-from pybuspro.scanner import BusScanner, ScanOptions, build_module_read_payload, parse_module_reply  # noqa: E402
+from pybuspro.scanner import (  # noqa: E402
+    CURTAIN_CLOSE, CURTAIN_OPEN, CURTAIN_STOP, BusController, BusScanner, ScanOptions, build_module_read_payload,
+    parse_module_reply,
+)
 
 ENCODINGS = ("utf-8", "cp1257", "gbk", "latin-1")
 # Reply code -> offset of a possible 20-byte remark in its payload.
@@ -188,6 +194,43 @@ class Probe:
             self.args.json.write_text(json.dumps(result.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
             print(f"Saved to {self.args.json}")
 
+    def controller(self):
+        return BusController(self.buspro, confirm_timeout=self.args.timeout)
+
+    @staticmethod
+    def print_result(result):
+        data = result.to_dict()
+        state = "CONFIRMED" if data["confirmed"] else "NOT CONFIRMED"
+        print(f"   {state}: {data['address']} {data['kind']} {data['number']} requested {data['requested']}, "
+              f"device reports {data['value']} via {data['confirmed_by']} in {data['latency']} s"
+              + (f"; {data['error']}" if data["error"] else ""))
+
+    async def cmd_set(self):
+        address, number, value = parse_address(self.args.address), self.args.number, self.args.value
+        controller = self.controller()
+        if self.args.target == "curtain":
+            statuses = {"open": CURTAIN_OPEN, "close": CURTAIN_CLOSE, "stop": CURTAIN_STOP}
+            if value not in statuses:
+                raise SystemExit("curtain value must be open, close or stop")
+            result = await controller.set_curtain(address, number, statuses[value])
+        elif self.args.target == "universal_switch":
+            if value not in ("on", "off"):
+                raise SystemExit("universal switch value must be on or off")
+            result = await controller.set_universal_switch(address, number, value == "on")
+        else:
+            level = {"on": 100, "off": 0}.get(value)
+            result = await controller.set_channel(address, number, int(value) if level is None else level)
+        self.print_result(result)
+
+    async def cmd_pulse(self):
+        address, channel = parse_address(self.args.address), self.args.number
+        controller = self.controller()
+        result = await controller.pulse_channel(address, channel, self.args.level, self.args.seconds)
+        self.print_result(result)
+        print(f"   restoring level {result.previous} after {self.args.seconds} s ...")
+        await asyncio.sleep(self.args.seconds + self.args.timeout + 0.5)
+        print(f"   level now: {await controller.read_channel(address, channel)}")
+
     async def cmd_raw(self):
         payload = [int(value, 0) for value in self.args.payload]
         await self.send(parse_address(self.args.address), int(self.args.operate_code, 0), payload)
@@ -236,6 +279,18 @@ def build_parser():
     raw.add_argument("payload", nargs="*", help="payload bytes, e.g. 1 0x64")
     raw.add_argument("--seconds", type=float, default=3, help="how long to listen afterwards")
     commands.add_parser("decode", help="decode hex payloads from a file or - for stdin").add_argument("file")
+    set_ = commands.add_parser("set", help="switch a channel, curtain or universal switch (real load!)")
+    set_.add_argument("address")
+    set_.add_argument("number", type=int, help="channel, curtain or switch number")
+    set_.add_argument("value", help="on, off or 0-100; curtains: open, close, stop")
+    set_.add_argument("--target", choices=["output", "curtain", "universal_switch"], default="output")
+    set_.add_argument("--yes", action="store_true", help="do not ask before switching")
+    pulse = commands.add_parser("pulse", help="turn a channel on for a moment, then restore it (real load!)")
+    pulse.add_argument("address")
+    pulse.add_argument("number", type=int, help="channel number")
+    pulse.add_argument("--level", type=int, default=100)
+    pulse.add_argument("--seconds", type=float, default=2)
+    pulse.add_argument("--yes", action="store_true", help="do not ask before switching")
     scan = commands.add_parser("scan", help="run the full bus scan (read-only)")
     scan.add_argument("--rounds", type=int, default=4, help="search rounds (one finds ~87%% of devices)")
     scan.add_argument("--interval", type=float, default=10, help="seconds per search round")
@@ -268,6 +323,10 @@ def main():
         return
     if not args.gateway:
         raise SystemExit("--gateway is required")
+    if args.command in ("set", "pulse") and not args.yes:
+        answer = input(f"This switches a real load on {args.address}, {args.command} {args.number}. Continue? [y/N] ")
+        if answer.strip().lower() not in ("y", "yes", "t", "taip"):
+            raise SystemExit("Cancelled")
     asyncio.run(run(args))
 
 

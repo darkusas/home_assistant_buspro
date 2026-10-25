@@ -19,7 +19,10 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.config_entries import ConfigEntry
+
+from .address_validation import validate_buspro_address_str
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,6 +39,7 @@ SERVICE_BUSPRO_SEND_MESSAGE = "send_message"
 SERVICE_BUSPRO_ACTIVATE_SCENE = "activate_scene"
 SERVICE_BUSPRO_UNIVERSAL_SWITCH = "set_universal_switch"
 SERVICE_BUSPRO_SCAN = "scan"
+SERVICE_BUSPRO_TEST_CHANNEL = "test_channel"
 
 SERVICE_BUSPRO_ATTR_OPERATE_CODE = "operate_code"
 SERVICE_BUSPRO_ATTR_ADDRESS = "address"
@@ -47,6 +51,17 @@ SERVICE_BUSPRO_ATTR_ROUNDS = "rounds"
 SERVICE_BUSPRO_ATTR_INTERVAL = "interval"
 SERVICE_BUSPRO_ATTR_READ_NAMES = "read_names"
 SERVICE_BUSPRO_ATTR_READ_MAC = "read_mac"
+SERVICE_BUSPRO_ATTR_CHANNEL = "channel"
+SERVICE_BUSPRO_ATTR_TARGET = "target"
+SERVICE_BUSPRO_ATTR_ACTION = "action"
+SERVICE_BUSPRO_ATTR_LEVEL = "level"
+SERVICE_BUSPRO_ATTR_DURATION = "duration"
+
+TEST_TARGET_ACTIONS = {
+    "output": ("on", "off", "level", "pulse"),
+    "curtain": ("open", "close", "stop"),
+    "universal_switch": ("on", "off"),
+}
 
 """{ "address": [1,74], "scene_address": [3,5] }"""
 SERVICE_BUSPRO_ACTIVATE_SCENE_SCHEMA = vol.Schema({
@@ -74,6 +89,25 @@ SERVICE_BUSPRO_SCAN_SCHEMA = vol.Schema({
     vol.Optional(SERVICE_BUSPRO_ATTR_INTERVAL, default=10): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=60)),
     vol.Optional(SERVICE_BUSPRO_ATTR_READ_NAMES, default=True): cv.boolean,
     vol.Optional(SERVICE_BUSPRO_ATTR_READ_MAC, default=True): cv.boolean,
+})
+
+
+def _device_address(value):
+    """'1.89' -> (1, 89)"""
+    parts = validate_buspro_address_str(value).split(".")
+    if len(parts) != 2:
+        raise vol.Invalid("address must be '<subnet ID>.<device ID>', e.g. '1.89'")
+    return int(parts[0]), int(parts[1])
+
+
+"""{ "address": "1.89", "channel": 3, "action": "pulse", "duration": 2 }"""
+SERVICE_BUSPRO_TEST_CHANNEL_SCHEMA = vol.Schema({
+    vol.Required(SERVICE_BUSPRO_ATTR_ADDRESS): vol.All(cv.string, _device_address),
+    vol.Required(SERVICE_BUSPRO_ATTR_CHANNEL): vol.All(vol.Coerce(int), vol.Range(min=1, max=255)),
+    vol.Optional(SERVICE_BUSPRO_ATTR_TARGET, default="output"): vol.In(list(TEST_TARGET_ACTIONS)),
+    vol.Required(SERVICE_BUSPRO_ATTR_ACTION): vol.In(["on", "off", "level", "pulse", "open", "close", "stop"]),
+    vol.Optional(SERVICE_BUSPRO_ATTR_LEVEL): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
+    vol.Optional(SERVICE_BUSPRO_ATTR_DURATION, default=2): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=30)),
 })
 
 CONFIG_SCHEMA = vol.Schema({
@@ -123,6 +157,8 @@ class BusproModule:
         self.hdl = None
         self.gateway_address_send_receive = ((host, port), ('', port))
         self.scanner = None
+        self.controller = None
+        self.state_monitor = None
         self.last_scan = None
         self.init_hdl()
 
@@ -130,9 +166,11 @@ class BusproModule:
         """Initialize of Buspro object."""
         # noinspection PyUnresolvedReferences
         from .pybuspro.buspro import Buspro
-        from .pybuspro.scanner import BusScanner
+        from .pybuspro.scanner import BusController, BusScanner, StateMonitor
         self.hdl = Buspro(self.gateway_address_send_receive, self.hass.loop)
         self.scanner = BusScanner(self.hdl)
+        self.controller = BusController(self.hdl)
+        self.state_monitor = StateMonitor(self.hdl)
         # self.hdl.register_telegram_received_all_messages_cb(self.telegram_received_cb)
 
     async def start(self):
@@ -144,6 +182,8 @@ class BusproModule:
     # noinspection PyUnusedLocal
     async def stop(self, event):
         """Stop Buspro object. Disconnect from tunneling device."""
+        # Channels still in a test pulse go back to their previous level first.
+        await self.controller.restore_pending()
         await self.hdl.stop()
 
     async def service_activate_scene(self, call):
@@ -207,6 +247,37 @@ class BusproModule:
                           device.remark, len(device.channels))
         return result.to_dict()
 
+    async def service_test_channel(self, call: ServiceCall) -> ServiceResponse:
+        """Service for switching a channel directly on the bus, confirmed by the device"""
+        # noinspection PyUnresolvedReferences
+        from .pybuspro.scanner import BusControlError, CURTAIN_CLOSE, CURTAIN_OPEN, CURTAIN_STOP
+
+        address = call.data[SERVICE_BUSPRO_ATTR_ADDRESS]
+        number = call.data[SERVICE_BUSPRO_ATTR_CHANNEL]
+        target = call.data[SERVICE_BUSPRO_ATTR_TARGET]
+        action = call.data[SERVICE_BUSPRO_ATTR_ACTION]
+        level = call.data.get(SERVICE_BUSPRO_ATTR_LEVEL)
+        if action not in TEST_TARGET_ACTIONS[target]:
+            raise HomeAssistantError(f"Action '{action}' is not available for {target}")
+        if action == "level" and level is None:
+            raise HomeAssistantError("Action 'level' needs a level")
+
+        try:
+            if target == "curtain":
+                status = {"open": CURTAIN_OPEN, "close": CURTAIN_CLOSE, "stop": CURTAIN_STOP}[action]
+                result = await self.controller.set_curtain(address, number, status)
+            elif target == "universal_switch":
+                result = await self.controller.set_universal_switch(address, number, action == "on")
+            elif action == "pulse":
+                result = await self.controller.pulse_channel(
+                    address, number, 100 if level is None else level, call.data[SERVICE_BUSPRO_ATTR_DURATION])
+            else:
+                result = await self.controller.set_channel(
+                    address, number, {"on": 100, "off": 0}.get(action, level))
+        except BusControlError as err:
+            raise HomeAssistantError(str(err)) from err
+        return result.to_dict()
+
     def register_services(self):
 
         """ activate_scene """
@@ -228,10 +299,17 @@ class BusproModule:
             schema=SERVICE_BUSPRO_UNIVERSAL_SWITCH_SCHEMA)
 
         """ scan """
-        self.hass.services.async_register(
-            DOMAIN, SERVICE_BUSPRO_SCAN,
+        async_register_admin_service(
+            self.hass, DOMAIN, SERVICE_BUSPRO_SCAN,
             self.service_scan,
             schema=SERVICE_BUSPRO_SCAN_SCHEMA,
+            supports_response=SupportsResponse.OPTIONAL)
+
+        """ test_channel: switches real loads, so admins only """
+        async_register_admin_service(
+            self.hass, DOMAIN, SERVICE_BUSPRO_TEST_CHANNEL,
+            self.service_test_channel,
+            schema=SERVICE_BUSPRO_TEST_CHANNEL_SCHEMA,
             supports_response=SupportsResponse.OPTIONAL)
 
     '''

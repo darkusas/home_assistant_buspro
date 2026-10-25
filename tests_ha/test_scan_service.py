@@ -2,24 +2,19 @@ import asyncio
 
 import pytest
 from homeassistant.exceptions import HomeAssistantError
-from pytest_homeassistant_custom_component.common import MockConfigEntry
-
 from custom_components.buspro.diagnostics import async_get_config_entry_diagnostics
 
-from fakebus import FakeBus, SimDevice
+from conftest import setup_integration
+from fakebus import SimDevice
 
 SCAN = {"rounds": 1, "interval": 0.2}
 
 
 @pytest.fixture
 async def bus(hass):
-    entry = MockConfigEntry(domain="buspro", data={"host": "127.0.0.1", "port": 6000})
-    entry.add_to_hass(hass)
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    module = hass.data["buspro"]
     devices = [SimDevice((1, 89), 0x01AC, "Rėlės", functions=[(1, 1, 2)], levels=[0, 100],
                          channel_names={1: "Virtuvė", 2: None})]
-    module.hdl.network_interface = FakeBus(module.hdl, devices)
+    entry, module, _bus = await setup_integration(hass, devices)
     return entry, module
 
 
