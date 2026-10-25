@@ -114,6 +114,16 @@ class OperateCode(Enum):
 
     BroadcastIlluminance = b'\xE4\x41'  # reversu atrasta reikšmė
 
+    # Device identification. Defined before the QUERY_* names below so these
+    # are the canonical names for 0x000E/0x000F (the QUERY_* ones become aliases).
+    ReadDeviceRemark = b'\x00\x0E'
+    ReadDeviceRemarkResponse = b'\x00\x0F'
+    ReadDeviceModule = b'\xE5\x48'
+    ReadDeviceModuleResponse = b'\xE5\x49'
+    # Not yet verified on real hardware (docs/device-scan-plan.md, stage 0).
+    ReadChannelRemark = b'\xF0\x0E'
+    ReadChannelRemarkResponse = b'\xF0\x0F'
+
     """
     # 
     # 

@@ -4,7 +4,13 @@ import asyncio
 import logging
 
 from .helpers.enums import *
-from .transport.network_interface import NetworkInterface
+from .helpers.generics import Generics
+# Must come after .helpers: core.telegram and helpers.telegram_helper import each other.
+from .core.telegram import Telegram
+from .transport.network_interface import NetworkInterface, DEFAULT_MIN_SEND_INTERVAL
+
+BROADCAST_ADDRESS = (255, 255)
+DEFAULT_REQUEST_TIMEOUT = 1.5
 
 
 # ip, port = gateway_address
@@ -31,7 +37,7 @@ class StateUpdater:
 
 class Buspro:
 
-    def __init__(self, gateway_address_send_receive, loop_=None):
+    def __init__(self, gateway_address_send_receive, loop_=None, min_send_interval=DEFAULT_MIN_SEND_INTERVAL):
         self.loop = loop_ or asyncio.get_event_loop()
         self.state_updater = None
         self.started = False
@@ -40,7 +46,9 @@ class Buspro:
         self.telegram_logger = logging.getLogger("buspro.telegram")
 
         self.callback_all_messages = None
+        self._telegram_listeners = []
         self._telegram_received_cbs = []
+        self._min_send_interval = min_send_interval
 
         self.gateway_address_send_receive = gateway_address_send_receive
 
@@ -54,7 +62,8 @@ class Buspro:
 
     # noinspection PyUnusedLocal
     async def start(self, state_updater=False):  # , daemon_mode=False):
-        self.network_interface = NetworkInterface(self, self.gateway_address_send_receive)
+        self.network_interface = NetworkInterface(
+            self, self.gateway_address_send_receive, min_send_interval=self._min_send_interval)
         self.network_interface.register_callback(self._callback_all_messages)
         await self.network_interface.start()
 
@@ -77,10 +86,20 @@ class Buspro:
         self.started = False
 
     def _callback_all_messages(self, telegram):
+        if telegram is None:
+            # Unparseable datagram or CRC failure; already logged by TelegramHelper.
+            return
+
         self.telegram_logger.debug(telegram)
 
         if self.callback_all_messages is not None:
             self.callback_all_messages(telegram)
+
+        for listener in list(self._telegram_listeners):
+            try:
+                listener(telegram)
+            except Exception:
+                self.logger.exception("Telegram listener failed")
 
         for telegram_received_cb in self._telegram_received_cbs:
             device_address = telegram_received_cb['device_address']
@@ -101,6 +120,68 @@ class Buspro:
 
     def register_telegram_received_all_messages_cb(self, telegram_received_cb):
         self.callback_all_messages = telegram_received_cb
+
+    def add_telegram_listener(self, listener):
+        """Call listener(telegram) for every received telegram. Returns a function that removes it."""
+        self._telegram_listeners.append(listener)
+
+        def remove():
+            self.remove_telegram_listener(listener)
+
+        return remove
+
+    def remove_telegram_listener(self, listener):
+        if listener in self._telegram_listeners:
+            self._telegram_listeners.remove(listener)
+
+    async def request(self, target_address, operate_code, payload=None, response_operate_code=None,
+                      match=None, timeout=DEFAULT_REQUEST_TIMEOUT, retries=0):
+        """Send a telegram and wait for the first matching reply.
+
+        A reply matches when it comes from target_address (any source if the target is the
+        broadcast address), has response_operate_code (any code if None) and passes match(telegram).
+        The request is sent again up to `retries` times. Returns the reply telegram, or None.
+        """
+        target_address = tuple(target_address)
+        expected_code = None
+        if response_operate_code is not None:
+            expected_code = Generics.operate_code_to_bytes(response_operate_code)
+        reply = self.loop.create_future()
+
+        def listener(telegram):
+            if reply.done():
+                return
+            if target_address != BROADCAST_ADDRESS and tuple(telegram.source_address) != target_address:
+                return
+            if expected_code is not None and telegram.operate_code_raw != expected_code:
+                return
+            if match is not None and not match(telegram):
+                return
+            reply.set_result(telegram)
+
+        remove_listener = self.add_telegram_listener(listener)
+        try:
+            for _ in range(retries + 1):
+                await self.network_interface.send_telegram(
+                    self.build_telegram(target_address, operate_code, payload))
+                try:
+                    return await asyncio.wait_for(asyncio.shield(reply), timeout)
+                except asyncio.TimeoutError:
+                    continue
+            return None
+        finally:
+            remove_listener()
+
+    @staticmethod
+    def build_telegram(target_address, operate_code, payload=None):
+        """Build an outgoing telegram; operate_code may be an OperateCode or a raw code."""
+        raw_code = Generics.operate_code_to_bytes(operate_code)
+        telegram = Telegram()
+        telegram.target_address = tuple(target_address)
+        telegram.operate_code = Generics().get_enum_value(OperateCode, raw_code)
+        telegram.operate_code_raw = raw_code
+        telegram.payload = list(payload or [])
+        return telegram
 
     def register_telegram_received_device_cb(self, telegram_received_cb, device_address, postfix=None):
         self._telegram_received_cbs.append({
