@@ -24,7 +24,8 @@ def remark_bytes(text):
 class SimDevice:
     def __init__(self, address, type_code, remark=None, mac=None, functions=None, levels=None,
                  channel_names=None, answers_search=True, missed_searches=0, answers_remark=True,
-                 broadcasts=(), confirms=True, fails=False, curtains=None, universal_switches=None):
+                 broadcasts=(), confirms=True, fails=False, curtains=None, universal_switches=None,
+                 floor_heating=False, sensor_status=None, temperature=None):
         self.address = address
         self.type_code = type_code
         self.remark = remark
@@ -40,6 +41,10 @@ class SimDevice:
         self.fails = fails  # answer 0x0031 with 0xF5 and do not switch
         self.curtains = curtains  # curtain -> status (0 stop, 1 open, 2 close)
         self.universal_switches = universal_switches  # switch -> bool
+        # DLP floor heating: [temperature type, current, status, mode, normal, day, night, away]
+        self.floor_heating = [0, 22, 0, 1, 24, 21, 19, 18] if floor_heating else None
+        self.sensor_status = sensor_status  # 0x1646 payload answered to 0x1645
+        self.temperature = temperature  # answered to ReadTemperature (0xE3E7), like wall panels
         self.received = []
 
     def reply(self, operate_code, payload, target):
@@ -90,6 +95,15 @@ class SimDevice:
             return [self.reply(0xE3E1, [payload[0], payload[1]], BROADCAST)] if self.confirms else []
         if code == 0xE3E2 and self.curtains is not None and payload[0] in self.curtains:
             return [self.reply(0xE3E3, [payload[0], self.curtains[payload[0]]], source)]
+        if code == 0x1944 and self.floor_heating is not None:
+            return [self.reply(0x1945, self.floor_heating + [0, 0], source)]
+        if code == 0x1946 and self.floor_heating is not None and len(payload) >= 7:
+            self.floor_heating = [payload[0], self.floor_heating[1]] + list(payload[1:7])
+            return [self.reply(0x1947, [0xF8] + list(payload[:7]), BROADCAST)]
+        if code == 0xE3E7 and self.temperature is not None:
+            return [self.reply(0xE3E8, [payload[0], self.temperature], source)]
+        if code == 0x1645 and self.sensor_status is not None:
+            return [self.reply(0x1646, self.sensor_status, source)]
         if code == 0xE01C and self.universal_switches is not None:
             self.universal_switches[payload[0]] = payload[1] == 255
             return [self.reply(0xE01D, [payload[0], 1 if payload[1] == 255 else 0], BROADCAST)]
@@ -127,6 +141,10 @@ class FakeBus:
         for device in self.devices:
             for reply in device.handle(sent):
                 self._deliver(reply)
+
+    def broadcast(self, device, operate_code, payload):
+        """Let a device send something on its own, e.g. a sensor reporting motion."""
+        self._deliver(device.reply(operate_code, payload, BROADCAST))
 
     def _deliver(self, telegram):
         asyncio.get_running_loop().call_soon(self.buspro._callback_all_messages, telegram)

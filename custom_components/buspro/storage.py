@@ -13,7 +13,21 @@ from .const import DOMAIN
 STORAGE_KEY = "buspro.entities"
 STORAGE_VERSION = 1
 
-OUTPUT_PLATFORMS = ("switch", "light")
+# What can be added from a scan, and as which platforms.
+KIND_PLATFORMS = {
+    "output": ("switch", "light"),
+    "curtain": ("cover",),
+    "temperature": ("sensor",),
+    "illuminance": ("sensor",),
+    "motion": ("binary_sensor",),
+    "dry_contact_1": ("binary_sensor",),
+    "dry_contact_2": ("binary_sensor",),
+    "universal_switch": ("switch", "binary_sensor"),
+    "floor_heating": ("climate",),
+}
+OUTPUT_PLATFORMS = KIND_PLATFORMS["output"]
+PLATFORMS_IN_USE = sorted({platform for platforms in KIND_PLATFORMS.values() for platform in platforms})
+SENSOR_KINDS = ("temperature", "illuminance", "motion", "dry_contact_1", "dry_contact_2")
 
 
 @dataclass
@@ -21,17 +35,20 @@ class EntitySpec:
     platform: str
     subnet_id: int
     device_id: int
-    channel: int
+    channel: int  # output channel, curtain or universal switch number; 1 for one-per-device kinds
     name: str
-    options: dict = field(default_factory=dict)  # light: dimmable, running_time
+    options: dict = field(default_factory=dict)  # light: dimmable, running_time; cover: opening_time; ...
     device_name: str | None = None  # HDL device remark, used for the device registry
     device_model: str | None = None
     mac: str | None = None
+    kind: str = "output"  # a key of KIND_PLATFORMS
 
     @property
     def key(self) -> str:
-        """One output entity per channel, whatever its platform."""
-        return f"{self.subnet_id}.{self.device_id}.{self.channel}"
+        """One entity per channel (or per kind and number), whatever its platform."""
+        if self.kind == "output":
+            return f"{self.subnet_id}.{self.device_id}.{self.channel}"
+        return f"{self.subnet_id}.{self.device_id}.{self.kind}.{self.channel}"
 
     @property
     def device_address(self) -> tuple[int, int]:
@@ -39,9 +56,34 @@ class EntitySpec:
 
     @property
     def unique_id(self) -> str:
-        # Same format as YAML-configured lights and switches (pybuspro device_identifier),
-        # so a channel moved from YAML keeps its entity registry entry.
-        return f"{self.device_address}-{self.channel}"
+        # Where YAML has the same entity, this is its format (pybuspro device_identifier),
+        # so an entity moved from YAML keeps its registry entry.
+        address = self.device_address
+        if self.kind in ("output", "curtain"):
+            return f"{address}-{self.channel}"
+        if self.kind in SENSOR_KINDS:
+            return f"{address}-None-None-None-{self.kind}"
+        if self.kind == "universal_switch":
+            if self.platform == "switch":
+                return f"{address}-universal-{self.channel}"
+            return f"{address}-{self.channel}-None-None-universal_switch"
+        return f"{address}-{self.kind}"
+
+    def yaml_unique_ids(self) -> list[tuple[str, str]]:
+        """(platform, unique_id) of a YAML entity for the same channel, sensor or switch."""
+        address = self.device_address
+        if self.kind == "output":
+            return [(platform, self.unique_id) for platform in OUTPUT_PLATFORMS]
+        if self.kind == "curtain":
+            return [("cover", self.unique_id)]
+        if self.kind in ("temperature", "illuminance"):
+            return [("sensor", self.unique_id)]
+        if self.kind in SENSOR_KINDS:
+            # YAML binary sensors of one device share this id, whatever their type.
+            return [("binary_sensor", f"{address}-None-None-None")]
+        if self.kind == "universal_switch":
+            return [("binary_sensor", f"{address}-{self.channel}-None-None")]
+        return []
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -66,7 +108,7 @@ class EntityStore:
     async def async_load(self) -> None:
         data = await self._store.async_load() or {}
         self._specs = {}
-        for item in data.get("entities", []):
+        for item in data.get("entities", []):  # entries without "kind" are outputs (first version)
             spec = EntitySpec(**item)
             self._specs[spec.key] = spec
 

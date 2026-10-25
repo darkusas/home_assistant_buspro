@@ -10,19 +10,26 @@ from homeassistant.helpers import config_validation as cv, entity_registry as er
 
 from .address_validation import parse_device_address
 from .const import DOMAIN
-from .storage import OUTPUT_PLATFORMS, EntitySpec
+from .storage import KIND_PLATFORMS, PLATFORMS_IN_USE, SENSOR_KINDS, EntitySpec
 
 ENTITY_SCHEMA = vol.Schema({
-    vol.Required("platform"): vol.In(OUTPUT_PLATFORMS),
+    vol.Optional("kind", default="output"): vol.In(list(KIND_PLATFORMS)),
+    vol.Required("platform"): vol.In(PLATFORMS_IN_USE),
     vol.Required("address"): vol.All(cv.string, parse_device_address),
-    vol.Required("channel"): vol.All(vol.Coerce(int), vol.Range(min=1, max=255)),
+    vol.Optional("channel", default=1): vol.All(vol.Coerce(int), vol.Range(min=1, max=255)),
     vol.Required("name"): vol.All(cv.string, vol.Length(min=1, max=100)),
     vol.Optional("dimmable", default=True): cv.boolean,
     vol.Optional("running_time", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=3600)),
+    vol.Optional("opening_time", default=20): vol.All(vol.Coerce(int), vol.Range(min=1, max=600)),
+    vol.Optional("device_class"): vol.Any(None, cv.string),
     vol.Optional("device_name"): vol.Any(None, cv.string),
     vol.Optional("device_model"): vol.Any(None, cv.string),
+    vol.Optional("device_category"): vol.Any(None, cv.string),
     vol.Optional("mac"): vol.Any(None, cv.string),
 })
+
+# Which scanned channels can become which kind of entity.
+_SENSOR_CHANNEL_KINDS = ("temperature", "illuminance", "motion", "floor_heating")
 
 
 TEST_ACTIONS = ["on", "off", "level", "pulse", "open", "close", "stop"]
@@ -35,11 +42,37 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, command)
 
 
-def _spec_from_message(item: dict) -> EntitySpec:
+def _spec_from_message(module, item: dict) -> EntitySpec:
     subnet_id, device_id = item["address"]
-    options = {"dimmable": item["dimmable"], "running_time": item["running_time"]} if item["platform"] == "light" else {}
-    return EntitySpec(item["platform"], subnet_id, device_id, item["channel"], item["name"], options,
-                      item.get("device_name"), item.get("device_model"), item.get("mac"))
+    kind, platform = item["kind"], item["platform"]
+    options = {}
+    if kind == "output" and platform == "light":
+        options = {"dimmable": item["dimmable"], "running_time": item["running_time"]}
+    elif kind == "curtain":
+        options = {"opening_time": item["opening_time"]}
+    elif kind in SENSOR_KINDS:
+        options = {"device": module.sensor_read_method(subnet_id, device_id, item.get("device_model"),
+                                                       item.get("device_category"))}
+        if platform == "binary_sensor":
+            options["device_class"] = item.get("device_class") or ("motion" if kind == "motion" else None)
+    elif kind == "universal_switch" and platform == "binary_sensor":
+        options = {"device_class": item.get("device_class")}
+    return EntitySpec(platform, subnet_id, device_id, item["channel"], item["name"], options,
+                      item.get("device_name"), item.get("device_model"), item.get("mac"), kind)
+
+
+def entity_kind(category: str, channel_kind: str, number: int) -> str | None:
+    """The entity kind a scanned channel can be added as, or None if it cannot be added (yet)."""
+    if category == "output_module":
+        return "output"
+    if category == "curtain_module" and channel_kind == "curtain":
+        return "curtain"
+    if category in ("sensor", "panel"):
+        if channel_kind in _SENSOR_CHANNEL_KINDS and number == 1:
+            return channel_kind
+        if channel_kind == "dry_contact" and category == "sensor" and number <= 2:
+            return f"dry_contact_{number}"
+    return None
 
 
 def _entity_info(hass: HomeAssistant, spec: EntitySpec) -> dict:
@@ -62,11 +95,18 @@ def ws_list_entities(hass: HomeAssistant, connection: websocket_api.ActiveConnec
 @websocket_api.require_admin
 @websocket_api.async_response
 async def ws_add_entities(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict) -> None:
-    specs = [_spec_from_message(item) for item in msg["entities"]]
-    added, rejected = await hass.data[DOMAIN].async_add_entity_specs(specs)
+    module = hass.data[DOMAIN]
+    specs, invalid = [], []
+    for item in msg["entities"]:
+        spec = _spec_from_message(module, item)
+        if spec.platform not in KIND_PLATFORMS[spec.kind]:
+            invalid.append({"key": spec.key, "reason": f"{spec.kind} cannot be a {spec.platform}"})
+        else:
+            specs.append(spec)
+    added, rejected = await module.async_add_entity_specs(specs)
     connection.send_result(msg["id"], {
         "added": [spec.key for spec in added],
-        "rejected": [{"key": spec.key, "reason": reason} for spec, reason in rejected],
+        "rejected": invalid + [{"key": spec.key, "reason": reason} for spec, reason in rejected],
     })
 
 
@@ -85,15 +125,24 @@ async def ws_remove_entities(hass: HomeAssistant, connection: websocket_api.Acti
 
 
 def _scan_with_entities(module) -> dict | None:
-    """The last scan result, with the entity (if any) of every output channel."""
+    """The last scan result, with what each channel can be added as and its entity, if any."""
     if module.last_scan is None:
         return None
     data = module.last_scan.to_dict()
     for device in data["devices"]:
         subnet_id, device_id = (int(part) for part in device["address"].split("."))
         for channel in device["channels"]:
-            channel["entity"] = (module.channel_entity(subnet_id, device_id, channel["number"])
-                                 if device["category"] == "output_module" else None)
+            kind = entity_kind(device["category"], channel["kind"], channel["number"])
+            # Outputs and curtains are numbered; sensor readings are one entity per device and kind.
+            number = channel["number"] if kind in ("output", "curtain") else 1
+            channel["entity_kind"] = kind
+            channel["entity_number"] = number if kind else None
+            channel["entity"] = module.entity_for(subnet_id, device_id, kind, number) if kind else None
+        device["universal_switches"] = [
+            {"number": spec.channel, "entity": module.entity_for(subnet_id, device_id, "universal_switch", spec.channel)}
+            for spec in module.entity_store.specs
+            if spec.kind == "universal_switch" and spec.device_address == (subnet_id, device_id)
+        ]
     return data
 
 
@@ -169,15 +218,42 @@ async def ws_channel_test(hass: HomeAssistant, connection: websocket_api.ActiveC
 @websocket_api.require_admin
 @websocket_api.async_response
 async def ws_device_refresh(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict) -> None:
-    """Read channel levels again; the answer also reaches state subscribers."""
+    """Ask a device for its current state; the answers also reach state subscribers."""
     from .pybuspro.helpers.enums import OperateCode
 
-    reply = await hass.data[DOMAIN].hdl.request(msg["address"], OperateCode.ReadStatusOfChannels, (),
-                                                OperateCode.ReadStatusOfChannelsResponse, timeout=1.5)
+    module = hass.data[DOMAIN]
+    address = msg["address"]
+    scanned = next((d for d in (module.last_scan.devices if module.last_scan else [])
+                    if (d.subnet_id, d.device_id) == tuple(address)), None)
     levels = None
-    if reply is not None and reply.payload:
-        levels = reply.payload[1:1 + reply.payload[0]]
+    if scanned is None or scanned.category == "output_module":
+        reply = await module.hdl.request(address, OperateCode.ReadStatusOfChannels, (),
+                                         OperateCode.ReadStatusOfChannelsResponse, timeout=1.5)
+        if reply is not None and reply.payload:
+            levels = reply.payload[1:1 + reply.payload[0]]
+    else:
+        for operate_code, payload in _state_reads(module, scanned):
+            await module.hdl.network_interface.send_telegram(module.hdl.build_telegram(address, operate_code, payload))
     connection.send_result(msg["id"], {"levels": levels})
+
+
+def _state_reads(module, device) -> list:
+    """Read requests that make a sensor, panel or curtain module report its state."""
+    from .pybuspro.helpers.enums import OperateCode
+
+    kinds = {channel.kind for channel in device.channels}
+    reads = []
+    if device.category == "curtain_module":
+        reads += [(OperateCode.CurtainSwitchStatus, [c.number]) for c in device.channels]
+    if device.category == "sensor":
+        method = module.sensor_read_method(device.subnet_id, device.device_id, f"0x{device.type_code or 0:04X}")
+        reads.append({"sensors_in_one": (OperateCode.ReadSensorsInOneStatus, []),
+                      "pir": (OperateCode.ReadMotionSensorStatus, [])}.get(method, (OperateCode.ReadSensorStatus, [])))
+    if device.category == "panel" and "temperature" in kinds:
+        reads.append((OperateCode.ReadTemperature, [1]))
+    if "floor_heating" in kinds:
+        reads.append((OperateCode.ReadFloorHeatingStatus, []))
+    return reads
 
 
 def _update_dict(update) -> dict:

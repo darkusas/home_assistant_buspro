@@ -1,6 +1,6 @@
 # HDL Buspro įrenginių skanavimo ir pridėjimo įrankis — įgyvendinimo planas
 
-Būsena (2026-10-25): **etapai 0–5 atlikti — MVP**: skaneris ir testavimas (`pybuspro/scanner/`, servisai `buspro.scan` ir `buspro.test_channel`, `tools/hdl_probe.py scan|set|pulse`), entity iš skenavimo (`storage.py`, `switch`/`light` `async_setup_entry`), šoninis skydelis (`frontend/buspro-panel.js`, `panel.py`, WS `buspro/*` komandos `websocket_api.py`). Etapo 0 rezultatai pagal du Setup Tool 2 Wireshark įrašus — `docs/protocol-captures/2026-10-25-analysis.md` (jie turi pirmenybę prieš 2 skyriaus spėjimus).
+Būsena (2026-10-25): **etapai 0–6 atlikti** (6: `cover`, `sensor`, `binary_sensor`, universal switch, DLP grindų šildymas `climate`): skaneris ir testavimas (`pybuspro/scanner/`, servisai `buspro.scan` ir `buspro.test_channel`, `tools/hdl_probe.py scan|set|pulse`), entity iš skenavimo (`storage.py`, `switch`/`light` `async_setup_entry`), šoninis skydelis (`frontend/buspro-panel.js`, `panel.py`, WS `buspro/*` komandos `websocket_api.py`). Etapo 0 rezultatai pagal du Setup Tool 2 Wireshark įrašus — `docs/protocol-captures/2026-10-25-analysis.md` (jie turi pirmenybę prieš 2 skyriaus spėjimus).
 
 ## 1. Tikslas
 
@@ -184,6 +184,12 @@ Dydžiai: **S** ≈ pusdienis, **M** ≈ 1–2 d., **L** ≈ 3+ d. (apytiksliai,
 | **7** | Apdaila: `lt`/`en` vertimai, README skyrius, `diagnostics.py` (nežinomų tipų kodų išrašas), „tipo override", repair'ai | M | Nežinomas įrenginys parodomas su kodu ir galima nurodyti tipą |
 
 **MVP = etapai 0–5** (rėlės ir dimeriai — tavo pagrindinis pavyzdys).
+
+### Etapo 6 rezultatai ir kas atidėta
+
+- Atlikta: užuolaidos (`cover`), temperatūra ir apšvietimas (`sensor`), judesys ir sausi kontaktai 1/2 (`binary_sensor`), universal switch (įvedamas numeriu, `switch`/`binary_sensor`), DLP grindų šildymas (`climate`). Skaneris funkcijas nustato pagal `0xE549` ir pagal tai, ką įrenginys siunčia; tyliems jutikliams siunčia skaitymo užklausą, panelėms su šildymu — `0x1944`.
+- DLP šildymo skaitymas (`0x1945`, `0x1947`) patvirtintas įrašais; valdymas (`0x1946`) — pagal oficialų sąrašą, su tikra įranga dar nebandytas.
+- Atidėta, nes trūksta patvirtintų duomenų: grindų šildymo modulio (`00CF`) valdymas — įraše nėra `0x1C5C`; temperatūros modulio (`0086`) kanalai (`0x1948/0x1949`); sausų kontaktų įėjimų moduliai (`016E/016F`) — nežinoma, kaip jie praneša pokyčius; kai kurių jutiklių (`0155/0156`) judesio pranešimo būdas — įrašuose jie judesio nesiuntė.
 
 ## 9. Testavimo strategija
 

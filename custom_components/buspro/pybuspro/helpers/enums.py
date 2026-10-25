@@ -95,6 +95,8 @@ class OperateCode(Enum):
     BroadcastSensorStatusAutoResponse = b'\x16\x47'
 
     BroadcastTemperatureResponse = b'\xE3\xE5'
+    ReadTemperature = b'\xE3\xE7'
+    ReadTemperatureResponse = b'\xE3\xE8'
 
     ReadFloorHeatingStatus = b'\x19\x44'
     ReadFloorHeatingStatusResponse = b'\x19\x45'

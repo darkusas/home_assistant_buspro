@@ -29,7 +29,25 @@ const STRINGS = {
     refresh: "Atnaujinti būsenas",
     columns: { number: "Nr.", name: "Pavadinimas", type: "Tipas", state: "Būsena", test: "Testas", entity: "Entity" },
     types: { switch: "Jungiklis", light_onoff: "Šviestuvas (įj./išj.)", light: "Šviestuvas (dimeris)" },
-    platforms: { switch: "Jungiklis", light: "Šviestuvas" },
+    platforms: { switch: "Jungiklis", light: "Šviestuvas", cover: "Užuolaida", sensor: "Jutiklis",
+      binary_sensor: "Dvejetainis jutiklis", climate: "Termostatas" },
+    features: { temperature: "Temperatūra", illuminance: "Apšvietimas", motion: "Judesys",
+      dry_contact_1: "Sausas kontaktas 1", dry_contact_2: "Sausas kontaktas 2", curtain: "Užuolaida",
+      floor_heating: "Grindų šildymas" },
+    feature: "Funkcija",
+    openingTime: "Atidarymo laikas, s",
+    motionYes: "Judesys", motionNo: "Nėra",
+    curtainStatus: { 0: "Stop", 1: "Atidaroma", 2: "Uždaroma" },
+    heatingOn: "Šildo", heatingOff: "Išjungta",
+    presets: { 1: "normalus", 2: "dienos", 3: "nakties", 4: "išvykus", 5: "laikmatis" },
+    heatingNote: "Šildymo skaitymas patikrintas įrašais; valdymas dar nebandytas su tikra įranga.",
+    notAddable: "dar nepalaikoma",
+    universal: "Universalūs jungikliai",
+    universalHelp: "Skanuojant jų nerasti: įveskite numerį (pvz. iš logikos modulio), išbandykite ir pridėkite.",
+    universalNumber: "Nr.",
+    addAsSwitch: "Pridėti kaip jungiklį",
+    addAsSensor: "Pridėti kaip jutiklį",
+    universalName: "Universalus jungiklis {n}",
     kinds: { relay: "rėlė", dimmer: "dimeris", dmx: "DMX", output: "išėjimas", curtain: "užuolaida" },
     on: "ĮJ", off: "IŠJ", pulse: "Impulsas", open: "▲", stop: "■", close: "▼",
     stateOn: "Įjungta", stateOff: "Išjungta",
@@ -44,7 +62,6 @@ const STRINGS = {
     remove: "Pašalinti",
     removeConfirm: "Pašalinti {id}?",
     yaml: "YAML",
-    laterStage: "Šio tipo įrenginių pridėjimas bus vėlesniame etape. Kanalus galima išbandyti.",
     noChannels: "Šis įrenginys neturi kanalų, kuriuos būtų galima pridėti.",
     unnamed: "Kanalas {n}",
     error: "Klaida: {message}",
@@ -84,7 +101,25 @@ const STRINGS = {
     refresh: "Refresh state",
     columns: { number: "No.", name: "Name", type: "Type", state: "State", test: "Test", entity: "Entity" },
     types: { switch: "Switch", light_onoff: "Light (on/off)", light: "Light (dimmable)" },
-    platforms: { switch: "Switch", light: "Light" },
+    platforms: { switch: "Switch", light: "Light", cover: "Cover", sensor: "Sensor", binary_sensor: "Binary sensor",
+      climate: "Thermostat" },
+    features: { temperature: "Temperature", illuminance: "Illuminance", motion: "Motion",
+      dry_contact_1: "Dry contact 1", dry_contact_2: "Dry contact 2", curtain: "Curtain",
+      floor_heating: "Floor heating" },
+    feature: "Feature",
+    openingTime: "Opening time, s",
+    motionYes: "Motion", motionNo: "Clear",
+    curtainStatus: { 0: "Stopped", 1: "Opening", 2: "Closing" },
+    heatingOn: "Heating", heatingOff: "Off",
+    presets: { 1: "normal", 2: "day", 3: "night", 4: "away", 5: "timer" },
+    heatingNote: "Reading the heating is confirmed by captures; control is not yet tested on real hardware.",
+    notAddable: "not supported yet",
+    universal: "Universal switches",
+    universalHelp: "A scan does not find them: enter the number (e.g. from a logic module), test it and add it.",
+    universalNumber: "No.",
+    addAsSwitch: "Add as switch",
+    addAsSensor: "Add as sensor",
+    universalName: "Universal switch {n}",
     kinds: { relay: "relay", dimmer: "dimmer", dmx: "DMX", output: "output", curtain: "curtain" },
     on: "ON", off: "OFF", pulse: "Pulse", open: "▲", stop: "■", close: "▼",
     stateOn: "On", stateOff: "Off",
@@ -99,7 +134,6 @@ const STRINGS = {
     remove: "Remove",
     removeConfirm: "Remove {id}?",
     yaml: "YAML",
-    laterStage: "Adding this kind of device comes in a later stage. Its channels can be tested.",
     noChannels: "This device has no channels that can be added.",
     unnamed: "Channel {n}",
     error: "Error: {message}",
@@ -212,6 +246,12 @@ const STYLE = `
   .result.ok { color: var(--bp-ok); }
   .result.bad { color: var(--bp-error); }
   .entity { font-size: 12px; word-break: break-all; }
+  .universal { padding: 12px 16px; border-top: 1px solid var(--bp-border); }
+  .universal summary { cursor: pointer; font-weight: 500; }
+  .universal .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
+  input[type=number] { font: inherit; color: inherit; border-radius: 6px; border: 1px solid var(--bp-border);
+    background: var(--bp-card); padding: 6px 8px; min-height: 34px; box-sizing: border-box; width: 84px; }
+  .note { font-size: 12px; color: var(--bp-muted); }
   .footer { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px;
     padding: 12px 16px; }
   label.check { display: inline-flex; align-items: center; gap: 6px; }
@@ -247,9 +287,20 @@ class BusproPanel extends HTMLElement {
     this._results = {}; // "address:target:number" -> test result text
     this._live = {}; // channel number -> level, for the selected device
     this._liveCells = {};
+    this._resetLive();
+    this._universal = { number: "", name: "" };
     this._banner = null;
     this._unsubScan = null;
     this._unsubState = null;
+  }
+
+  _resetLive() {
+    this._liveSensor = {}; // temperature, illuminance, motion, dry_contact_1, dry_contact_2
+    this._liveHeating = {};
+    this._liveCurtain = {}; // curtain -> status
+    this._liveUniversal = {}; // switch -> bool
+    this._featureCells = {};
+    this._universalCells = {};
   }
 
   set hass(hass) {
@@ -350,11 +401,12 @@ class BusproPanel extends HTMLElement {
     if (this._selected === address) return;
     this._selected = address;
     this._live = {};
+    this._resetLive();
     this._unsubscribe("_unsubState");
     this._unsubState = this._hass.connection.subscribeMessage((event) => this._onState(event),
       { type: "buspro/state/subscribe", address });
     this._render();
-    if (this._device(address) && this._device(address).category === "output_module") this._refresh();
+    if (this._device(address)) this._refresh();
   }
 
   async _refresh() {
@@ -369,6 +421,10 @@ class BusproPanel extends HTMLElement {
   _onState(event) {
     for (const update of event.updates || []) {
       if (update.kind === "channel") this._live[update.number] = update.value;
+      else if (update.kind === "sensor") Object.assign(this._liveSensor, update.value);
+      else if (update.kind === "floor_heating") Object.assign(this._liveHeating, update.value);
+      else if (update.kind === "curtain") this._liveCurtain[update.number] = update.value;
+      else if (update.kind === "universal_switch") this._liveUniversal[update.number] = update.value;
       else if (update.kind === "channels_on") {
         update.value.forEach((on, index) => {
           const number = index + 1;
@@ -403,9 +459,8 @@ class BusproPanel extends HTMLElement {
     return true;
   }
 
-  async _test(device, channel, target, action, level) {
+  async _test(device, channel, target, action, level, resultKey = `${device.address}:${target}:${channel.number}`) {
     if (!this._acceptWarning()) return;
-    const resultKey = `${device.address}:${target}:${channel.number}`;
     const message = { type: "buspro/channel/test", address: device.address, channel: channel.number, target, action };
     if (level !== undefined) message.level = level;
     try {
@@ -423,7 +478,11 @@ class BusproPanel extends HTMLElement {
   }
 
   _describeResult(result) {
-    const value = result.kind === "output" ? `${result.value} %` : result.value;
+    const t = this.t;
+    let value = result.value;
+    if (result.kind === "output") value = `${result.value} %`;
+    else if (result.kind === "universal_switch") value = result.value ? t.stateOn : t.stateOff;
+    else if (result.kind === "curtain") value = t.curtainStatus[result.value] || result.value;
     if (result.confirmed) {
       return { ok: true, text: format(this.t.confirmed, { value, code: result.confirmed_by,
         ms: Math.round((result.latency || 0) * 1000) }) };
@@ -440,17 +499,27 @@ class BusproPanel extends HTMLElement {
       entities.push({
         platform: edit.type === "switch" ? "switch" : "light",
         dimmable: edit.type === "light",
-        address: device.address,
         channel: channel.number,
         name: edit.name.trim() || format(this.t.unnamed, { n: channel.number }),
-        device_name: device.remark || null,
-        device_model: device.type_code || null,
-        mac: device.mac || null,
       });
     }
-    if (!entities.length) return;
+    await this._addEntities(device, entities);
+  }
+
+  async _addEntities(device, items) {
+    // The device's own details go with every entity, for the Home Assistant device registry.
+    const entities = items.map((item) => ({
+      ...item,
+      address: device.address,
+      device_name: device.remark || null,
+      device_model: device.type_code || null,
+      device_category: device.category,
+      mac: device.mac || null,
+    }));
+    if (!entities.length) return null;
+    let result = null;
     try {
-      const result = await this._hass.callWS({ type: "buspro/entities/add", entities });
+      result = await this._hass.callWS({ type: "buspro/entities/add", entities });
       const lines = [format(this.t.added, { n: result.added.length })];
       if (result.rejected.length) {
         lines.push(format(this.t.rejected, { list: result.rejected.map((r) => `${r.key}: ${r.reason}`).join("; ") }));
@@ -463,6 +532,7 @@ class BusproPanel extends HTMLElement {
     await this._load();
     // Entity ids are assigned right after the entities are created.
     setTimeout(() => this._load(), 1000);
+    return result;
   }
 
   async _remove(entity) {
@@ -576,6 +646,8 @@ class BusproPanel extends HTMLElement {
     const device = this._selected && this._device(this._selected);
     this._liveCells = {};
     this._resultCells = {};
+    this._featureCells = {};
+    this._universalCells = {};
     if (!device) return el("section", { class: "card empty", text: t.selectDevice });
 
     const facts = [t.categories[device.category] || device.category, device.type_code, device.mac && `MAC ${device.mac}`]
@@ -583,18 +655,18 @@ class BusproPanel extends HTMLElement {
     const head = el("div", { class: "card-head" }, [
       el("div", {}, [el("h2", { text: `${device.address} · ${device.remark || "—"}` }),
         el("div", { class: "muted", text: facts })]),
-      device.category === "output_module"
-        ? el("button", { onclick: () => this._refresh(), text: t.refresh }) : null,
+      el("button", { onclick: () => this._refresh(), text: t.refresh }),
     ]);
     const section = el("section", { class: "card" }, [head]);
 
     if (device.category === "output_module") {
       section.append(this._renderOutputTable(device));
-    } else if (device.category === "curtain_module" && device.channels.length) {
-      section.append(el("div", { class: "info", text: t.laterStage }), this._renderCurtainTable(device));
+    } else if (device.channels.length) {
+      section.append(this._renderFeatureTable(device));
     } else {
-      section.append(el("div", { class: "info", text: device.channels.length ? t.laterStage : t.noChannels }));
+      section.append(el("div", { class: "info", text: t.noChannels }));
     }
+    if (!["gateway", "software"].includes(device.category)) section.append(this._renderUniversal(device));
     return section;
   }
 
@@ -668,18 +740,6 @@ class BusproPanel extends HTMLElement {
       }));
     }
 
-    let entityCell;
-    if (entity && entity.source === "panel") {
-      entityCell = el("td", { class: "entity" }, [
-        el("div", { text: entity.entity_id || "…" }),
-        el("button", { class: "small", onclick: () => this._remove(entity), text: t.remove }),
-      ]);
-    } else if (entity) {
-      entityCell = el("td", { class: "entity", text: `${t.yaml}: ${entity.entity_id}` });
-    } else {
-      entityCell = el("td", { class: "entity muted", text: "—" });
-    }
-
     const row = el("tr", {}, [
       el("td", { class: "check" }, checkbox),
       el("td", { class: "number" }, [String(channel.number),
@@ -688,33 +748,244 @@ class BusproPanel extends HTMLElement {
       el("td", { class: "type" }, typeControl),
       stateCell,
       el("td", { class: "test" }, [tests, resultNode]),
-      entityCell,
+      this._entityCell(entity),
     ]);
     this._fillLive(channel.number);
     this._renderResult(resultKey);
     return row;
   }
 
-  _renderCurtainTable(device) {
+  _featureKey(device, channel) {
+    return `${device.address}.${channel.entity_kind}.${channel.entity_number}`;
+  }
+
+  _featureEdit(device, channel) {
+    const key = this._featureKey(device, channel);
+    if (!this._edits[key]) {
+      const label = this.t.features[channel.entity_kind] || channel.kind;
+      const base = channel.name || device.remark || device.address;
+      const name = channel.entity_kind === "curtain" ? base : `${base} ${label.toLowerCase()}`;
+      this._edits[key] = { checked: false, name, openingTime: 20 };
+    }
+    return this._edits[key];
+  }
+
+  _renderFeatureTable(device) {
     const t = this.t;
-    const rows = device.channels.map((channel) => {
-      const resultKey = `${device.address}:curtain:${channel.number}`;
-      const resultNode = el("div", { class: "result" });
-      this._resultCells[resultKey] = resultNode;
-      const row = el("tr", {}, [
-        el("td", { text: String(channel.number) }),
-        el("td", { text: channel.name || format(t.unnamed, { n: channel.number }) }),
-        el("td", {}, [el("div", { class: "tests" }, ["open", "stop", "close"].map((action) =>
-          el("button", { class: "small", onclick: () => this._test(device, channel, "curtain", action),
-            text: t[action] }))), resultNode]),
-      ]);
-      this._renderResult(resultKey);
-      return row;
-    });
-    return el("div", { class: "table-wrap" }, el("table", {}, [
-      el("thead", {}, el("tr", {}, [t.columns.number, t.columns.name, t.columns.test].map((text) => el("th", { text })))),
+    const channels = device.channels;
+    const rows = channels.map((channel) => this._renderFeatureRow(device, channel));
+    const table = el("table", { class: "outputs features" }, [
+      el("thead", {}, el("tr", {}, ["", t.feature, t.columns.name, t.columns.type, t.columns.state, t.columns.test,
+        t.columns.entity].map((text) => el("th", { text })))),
       el("tbody", {}, rows),
-    ]));
+    ]);
+    const addable = channels.filter((c) => c.entity_kind && !c.entity);
+    const addButton = el("button", { class: "primary", onclick: () => this._addFeatures(device) });
+    const updateCount = () => {
+      const n = addable.filter((c) => this._featureEdit(device, c).checked).length;
+      addButton.textContent = format(t.add, { n });
+      addButton.disabled = n === 0;
+    };
+    this._updateCount = updateCount;
+    updateCount();
+    const parts = [el("div", { class: "table-wrap" }, table)];
+    if (channels.some((c) => c.entity_kind === "floor_heating")) parts.push(el("div", { class: "info note", text: t.heatingNote }));
+    if (addable.length) parts.push(el("div", { class: "footer" }, [el("span"), addButton]));
+    return el("div", {}, parts);
+  }
+
+  _renderFeatureRow(device, channel) {
+    const t = this.t;
+    const kind = channel.entity_kind;
+    const entity = channel.entity;
+    const label = kind ? t.features[kind] : `${t.kinds[channel.kind] || channel.kind} ${channel.number}`;
+    const stateCell = el("td", { class: "state" });
+    const key = kind ? this._featureKey(device, channel) : `${device.address}.${channel.kind}.${channel.number}`;
+    this._featureCells[key] = { cell: stateCell, device, channel };
+
+    const resultKey = `${device.address}:curtain:${channel.number}`;
+    const resultNode = el("div", { class: "result" });
+    let tests = null;
+    if (channel.kind === "curtain") {
+      this._resultCells[resultKey] = resultNode;
+      tests = el("div", { class: "tests" }, ["open", "stop", "close"].map((action) =>
+        el("button", { class: "small", onclick: () => this._test(device, channel, "curtain", action), text: t[action] })));
+    }
+
+    if (!kind) {
+      const row = el("tr", {}, [el("td", { class: "check" }), el("td", { class: "number", text: label }),
+        el("td", { class: "name muted", text: channel.name || "—" }), el("td", { class: "type muted", text: t.notAddable }),
+        stateCell, el("td", { class: "test" }, tests), el("td", { class: "entity muted", text: "—" })]);
+      this._fillFeature(key);
+      return row;
+    }
+
+    const edit = this._featureEdit(device, channel);
+    const checkbox = el("input", {
+      type: "checkbox", checked: edit.checked, disabled: Boolean(entity), "aria-label": `select ${kind}`,
+      onchange: (e) => { edit.checked = e.target.checked; this._updateCount && this._updateCount(); },
+    });
+    const nameInput = el("input", {
+      type: "text", value: entity && entity.name ? entity.name : edit.name, disabled: Boolean(entity),
+      "aria-label": `name ${kind}`, oninput: (e) => { edit.name = e.target.value; },
+    });
+    const platform = { curtain: "cover", temperature: "sensor", illuminance: "sensor", floor_heating: "climate" }[kind]
+      || "binary_sensor";
+    const typeCell = el("td", { class: "type" }, [el("div", { class: "muted", text: t.platforms[platform] })]);
+    if (kind === "curtain" && !entity) {
+      typeCell.append(el("label", { class: "note" }, [`${t.openingTime} `, el("input", {
+        type: "number", min: "1", max: "600", value: String(edit.openingTime), "aria-label": "opening time",
+        oninput: (e) => { edit.openingTime = Number(e.target.value) || 20; },
+      })]));
+    }
+    const row = el("tr", {}, [
+      el("td", { class: "check" }, checkbox),
+      el("td", { class: "number", text: label }),
+      el("td", { class: "name" }, nameInput),
+      typeCell,
+      stateCell,
+      el("td", { class: "test" }, [tests, resultNode]),
+      this._entityCell(entity),
+    ]);
+    this._fillFeature(key);
+    this._renderResult(resultKey);
+    return row;
+  }
+
+  _entityCell(entity) {
+    const t = this.t;
+    if (entity && entity.source === "panel") {
+      return el("td", { class: "entity" }, [
+        el("div", { text: entity.entity_id || "…" }),
+        el("button", { class: "small", onclick: () => this._remove(entity), text: t.remove }),
+      ]);
+    }
+    if (entity) return el("td", { class: "entity", text: `${t.yaml}: ${entity.entity_id}` });
+    return el("td", { class: "entity muted", text: "—" });
+  }
+
+  _featureText(channel) {
+    const t = this.t;
+    const s = this._liveSensor;
+    switch (channel.entity_kind || channel.kind) {
+      case "temperature": return s.temperature === undefined ? null : `${s.temperature} °C`;
+      case "illuminance": return s.illuminance === undefined ? null : `${s.illuminance} lx`;
+      case "motion": return s.motion === undefined ? null : (s.motion ? t.motionYes : t.motionNo);
+      case "dry_contact_1":
+      case "dry_contact_2": {
+        const value = s[channel.entity_kind];
+        return value === undefined ? null : (value ? t.stateOn : t.stateOff);
+      }
+      case "curtain": {
+        const status = this._liveCurtain[channel.number];
+        return status === undefined ? null : (t.curtainStatus[status] || String(status));
+      }
+      case "floor_heating": {
+        const h = this._liveHeating;
+        if (h.status === undefined) return null;
+        const setpoint = h[{ 1: "normal", 2: "day", 3: "night", 4: "away", 5: "normal" }[h.mode] || "normal"];
+        const current = h.temperature === undefined ? "" : `${h.temperature} °C → `;
+        return `${h.status ? t.heatingOn : t.heatingOff} · ${current}${setpoint} °C (${t.presets[h.mode] || h.mode})`;
+      }
+      default: return null;
+    }
+  }
+
+  _fillFeature(key) {
+    const entry = this._featureCells[key];
+    if (!entry) return;
+    const text = this._featureText(entry.channel);
+    entry.cell.textContent = text === null ? "—" : text;
+    const on = ["motion", "dry_contact_1", "dry_contact_2"].includes(entry.channel.entity_kind)
+      && this._liveSensor[entry.channel.entity_kind];
+    entry.cell.className = on || (entry.channel.entity_kind === "floor_heating" && this._liveHeating.status)
+      ? "state on" : "state";
+  }
+
+  _renderUniversal(device) {
+    const t = this.t;
+    const state = this._universal;
+    const resultKey = `${device.address}:universal_switch:input`;
+    const resultNode = el("div", { class: "result" });
+    this._resultCells[resultKey] = resultNode;
+    const numberInput = el("input", {
+      type: "number", min: "1", max: "255", value: state.number, "aria-label": "universal switch number",
+      oninput: (e) => { state.number = e.target.value; },
+    });
+    const nameInput = el("input", {
+      type: "text", value: state.name, "aria-label": "universal switch name",
+      placeholder: format(t.universalName, { n: state.number || "…" }), oninput: (e) => { state.name = e.target.value; },
+    });
+    const number = () => {
+      const n = Number(state.number);
+      return Number.isInteger(n) && n >= 1 && n <= 255 ? n : null;
+    };
+    const test = (action) => {
+      const n = number();
+      if (n === null) return;
+      this._test(device, { number: n }, "universal_switch", action, undefined, resultKey);
+    };
+    const add = async (platform) => {
+      const n = number();
+      if (n === null) return;
+      const result = await this._addEntities(device, [{ kind: "universal_switch", platform, channel: n,
+        name: state.name.trim() || format(t.universalName, { n }) }]);
+      if (result && result.added.length) {
+        state.number = "";
+        state.name = "";
+        this._render();
+      }
+    };
+    const existing = (device.universal_switches || []).map((item) => {
+      const cell = el("span", { class: "state" });
+      this._universalCells[item.number] = cell;
+      this._fillUniversal(item.number);
+      return el("div", { class: "row" }, [
+        el("span", { text: `${t.universalNumber} ${item.number}` }), cell,
+        el("span", { class: "entity", text: item.entity ? item.entity.entity_id || "…" : "—" }),
+        item.entity ? el("button", { class: "small", onclick: () => this._remove(item.entity), text: t.remove }) : null,
+      ]);
+    });
+    // Open when it is what the device is for (e.g. logic modules have no channels of their own).
+    const open = Boolean(existing.length || state.number || !device.channels.length || device.category === "logic");
+    return el("details", { class: "universal", open }, [
+      el("summary", { text: t.universal }),
+      el("div", { class: "note", text: t.universalHelp }),
+      el("div", { class: "row" }, [
+        el("label", {}, [`${t.universalNumber} `, numberInput]),
+        el("button", { class: "small", onclick: () => test("on"), text: t.on }),
+        el("button", { class: "small", onclick: () => test("off"), text: t.off }),
+        nameInput,
+        el("button", { class: "small", onclick: () => add("switch"), text: t.addAsSwitch }),
+        el("button", { class: "small", onclick: () => add("binary_sensor"), text: t.addAsSensor }),
+      ]),
+      resultNode,
+      ...existing,
+    ]);
+  }
+
+  _fillUniversal(number) {
+    const cell = this._universalCells[number];
+    if (!cell) return;
+    const value = this._liveUniversal[number];
+    cell.textContent = value === undefined ? "—" : (value ? this.t.stateOn : this.t.stateOff);
+    cell.className = value ? "state on" : "state";
+  }
+
+  async _addFeatures(device) {
+    const entities = [];
+    for (const channel of device.channels) {
+      if (!channel.entity_kind || channel.entity) continue;
+      const edit = this._featureEdit(device, channel);
+      if (!edit.checked) continue;
+      const kind = channel.entity_kind;
+      const platform = { curtain: "cover", temperature: "sensor", illuminance: "sensor", floor_heating: "climate" }[kind]
+        || "binary_sensor";
+      const item = { kind, platform, channel: channel.entity_number, name: edit.name.trim() || this.t.features[kind] };
+      if (kind === "curtain") item.opening_time = edit.openingTime;
+      entities.push(item);
+    }
+    await this._addEntities(device, entities);
   }
 
   _fillLive(number) {
@@ -735,6 +1006,8 @@ class BusproPanel extends HTMLElement {
 
   _renderLive() {
     for (const number of Object.keys(this._liveCells)) this._fillLive(Number(number));
+    for (const key of Object.keys(this._featureCells)) this._fillFeature(key);
+    for (const number of Object.keys(this._universalCells)) this._fillUniversal(Number(number));
   }
 
   _renderResult(key) {

@@ -22,7 +22,20 @@ With the integration added under Settings > Integrations, administrators get an 
 3. Test a channel with **ON**, **OFF** or **Pulse** (on for 2 seconds, then back to its previous state); dimmers also have a slider. The result shows what the device answered. This switches the real load.
 4. Tick the channels you want, adjust their names and choose switch, light (on/off) or light (dimmable), then press **Add selected**. The entities appear right away, grouped under one device per HDL device, without editing YAML or restarting.
 
-Relay, dimmer and DMX channels can be added now; curtain channels can be tested. Channels already configured in YAML are marked and cannot be added a second time. Added entities are stored in `.storage/buspro.entities` and can be removed from the panel.
+What can be added:
+
+| From | As |
+|---|---|
+| Relay, dimmer and DMX channels | `switch`, `light` (on/off or dimmable) |
+| Curtain modules (tested with ▲ ■ ▼) | `cover`, with its opening time |
+| Sensors and wall panels: temperature, illuminance | `sensor` |
+| Sensors: motion, dry contact 1 and 2 | `binary_sensor` |
+| Universal switches (enter the number, e.g. of a logic module; tested with ON/OFF) | `switch` or `binary_sensor` |
+| Floor heating of DLP panels | `climate` (on/off, temperature, normal/day/night/away/timer) |
+
+Reading the DLP floor heating is confirmed with captures of real installations; controlling it follows the HDL operation code list and has not yet been tried on real hardware. Floor heating modules, multi-channel temperature modules and dry contact input modules are listed but cannot be added yet.
+
+Channels already configured in YAML are marked and cannot be added a second time. Added entities are stored in `.storage/buspro.entities` and can be removed from the panel.
 
 ## Configuration
 

@@ -6,6 +6,7 @@ and the captures in docs/protocol-captures/; the 0x0032 tail is a channel bitmas
 """
 
 import logging
+import struct
 from dataclasses import dataclass
 
 _LOGGER = logging.getLogger(__name__)
@@ -15,6 +16,8 @@ CHANNELS_ON = "channels_on"  # value: list of bools, channel 1 first (from the 0
 CURTAIN = "curtain"  # value: 0 stop, 1 open, 2 close
 UNIVERSAL_SWITCH = "universal_switch"  # value: bool
 SENSOR = "sensor"  # value: dict of readings
+FLOOR_HEATING = "floor_heating"  # value: dict with status, mode, setpoints (and current temperature)
+TEMPERATURE_CHANNEL = "temperature_channel"  # value: °C of one channel of a temperature module
 
 
 @dataclass(frozen=True)
@@ -71,6 +74,16 @@ def decode_state(telegram):
     elif code == 0x1605 and len(p) >= 10:
         add(SENSOR, None, {"temperature": p[1] - 20, "illuminance": _u16(p[2], p[3]), "motion": p[7] == 1,
                            "dry_contact_1": p[8] == 1, "dry_contact_2": p[9] == 1})
+    elif code == 0xDB01 and len(p) >= 4:
+        add(SENSOR, None, {"motion": p[3] == 1})
+    elif code == 0x1945 and len(p) >= 8:
+        add(FLOOR_HEATING, None, {"temperature": p[1], "status": p[2], "mode": p[3], "normal": p[4], "day": p[5],
+                                  "night": p[6], "away": p[7]})
+    elif code == 0x1947 and len(p) >= 8 and p[0] == 0xF8:
+        add(FLOOR_HEATING, None, {"status": p[2], "mode": p[3], "normal": p[4], "day": p[5], "night": p[6],
+                                  "away": p[7]})
+    elif code == 0x1949 and len(p) >= 5:
+        add(TEMPERATURE_CHANNEL, p[0], round(struct.unpack("<f", bytes(p[1:5]))[0], 1))
     elif code in (0xE3E5, 0xE3E8) and len(p) >= 2:
         add(SENSOR, None, {"temperature": _signed_temperature(p[1])})
     elif code == 0xE441 and len(p) >= 4:

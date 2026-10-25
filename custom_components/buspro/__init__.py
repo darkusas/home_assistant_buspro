@@ -60,6 +60,9 @@ SERVICE_BUSPRO_ATTR_ACTION = "action"
 SERVICE_BUSPRO_ATTR_LEVEL = "level"
 SERVICE_BUSPRO_ATTR_DURATION = "duration"
 
+# pybuspro Sensor "device" for types whose readings need a particular read request.
+SENSOR_READ_METHODS = {0x0134: "12in1", 0x0135: "8in1", 0x014A: "sensors_in_one", 0x0018: "pir"}
+
 TEST_TARGET_ACTIONS = {
     "output": ("on", "off", "level", "pulse"),
     "curtain": ("open", "close", "stop"),
@@ -204,23 +207,39 @@ class BusproModule:
             panel.async_unregister(self.hass)
             self._panel_registered = False
 
-    def channel_entity(self, subnet_id, device_id, channel):
-        """The entity for an output channel: added from the panel, configured in YAML, or None."""
-        from .storage import EntitySpec
+    def entity_for(self, subnet_id, device_id, kind, number):
+        """The entity for a channel, sensor or switch: added from the panel, configured in YAML, or None."""
+        from .storage import KIND_PLATFORMS, EntitySpec
 
-        key = f"{subnet_id}.{device_id}.{channel}"
+        probe = EntitySpec(KIND_PLATFORMS[kind][0], subnet_id, device_id, number, "", kind=kind)
         entity_registry = er.async_get(self.hass)
-        spec = self.entity_store.get(key) if self.entity_store else None
+        spec = self.entity_store.get(probe.key) if self.entity_store else None
         if spec is not None:
             entity_id = entity_registry.async_get_entity_id(spec.platform, DOMAIN, spec.unique_id)
-            return {"key": key, "source": "panel", "platform": spec.platform, "entity_id": entity_id,
+            return {"key": spec.key, "source": "panel", "platform": spec.platform, "entity_id": entity_id,
                     "name": spec.name}
-        yaml_entity_id = self._yaml_entity_for_channel(entity_registry, EntitySpec("switch", subnet_id, device_id,
-                                                                                    channel, ""))
+        yaml_entity_id = self._yaml_entity_for(entity_registry, probe)
         if yaml_entity_id is not None:
-            return {"key": key, "source": "yaml", "platform": yaml_entity_id.split(".")[0],
+            return {"key": probe.key, "source": "yaml", "platform": yaml_entity_id.split(".")[0],
                     "entity_id": yaml_entity_id, "name": None}
         return None
+
+    def sensor_read_method(self, subnet_id, device_id, device_model, device_category=None):
+        """How pybuspro's Sensor should ask this device for its readings."""
+        # noinspection PyUnresolvedReferences
+        from .pybuspro.scanner.type_codes import PANEL
+
+        if device_category == PANEL:
+            return "panel"
+        if self.last_scan is not None:
+            for device in self.last_scan.devices:
+                if (device.subnet_id, device.device_id) == (subnet_id, device_id) and device.category == PANEL:
+                    return "panel"
+        try:
+            type_code = int(device_model, 16) if device_model else None
+        except ValueError:
+            type_code = None
+        return SENSOR_READ_METHODS.get(type_code, "")
 
     async def async_add_entity_specs(self, specs):
         """Store and create entities. Returns (added specs, [(spec, reason)] rejected)."""
@@ -230,9 +249,9 @@ class BusproModule:
             existing = self.entity_store.get(spec.key)
             if existing is not None or spec.key in {s.key for s in added}:
                 platform = existing.platform if existing else spec.platform
-                rejected.append((spec, f"channel {spec.key} is already added as {platform}"))
+                rejected.append((spec, f"{spec.key} is already added as {platform}"))
                 continue
-            yaml_entity_id = self._yaml_entity_for_channel(entity_registry, spec)
+            yaml_entity_id = self._yaml_entity_for(entity_registry, spec)
             if yaml_entity_id is not None:
                 rejected.append((spec, f"already configured as {yaml_entity_id} (YAML)"))
                 continue
@@ -246,12 +265,10 @@ class BusproModule:
                     async_dispatcher_send(self.hass, SIGNAL_ENTITIES_ADDED.format(platform), platform_specs)
         return added, rejected
 
-    def _yaml_entity_for_channel(self, entity_registry, spec):
-        """A running entity for the same channel that this config entry does not own, on any output platform."""
-        from .storage import OUTPUT_PLATFORMS
-
-        for platform in OUTPUT_PLATFORMS:
-            entity_id = entity_registry.async_get_entity_id(platform, DOMAIN, spec.unique_id)
+    def _yaml_entity_for(self, entity_registry, spec):
+        """A running entity for the same thing that this config entry does not own (YAML)."""
+        for platform, unique_id in spec.yaml_unique_ids():
+            entity_id = entity_registry.async_get_entity_id(platform, DOMAIN, unique_id)
             entry = entity_registry.async_get(entity_id) if entity_id else None
             if (entry is not None and (self.config_entry is None or entry.config_entry_id != self.config_entry.entry_id)
                     and self.hass.states.get(entity_id) is not None):

@@ -11,6 +11,15 @@ const SHOTS = process.argv[2];
 // Runs in the page: a fake `hass` with callWS and connection.subscribeMessage.
 function installMockHass() {
   const relay = (number, name, level, entity = null) => ({ number, kind: "relay", name, level, entity });
+  const feature = (kind, number, entityKind, entityNumber = 1, name = null) => (
+    { number, kind, name, level: null, entity_kind: entityKind, entity_number: entityNumber, entity: null });
+  const liveReadings = {
+    "1.30": [{ kind: "sensor", number: null, value: { temperature: 22, illuminance: 300, motion: true,
+      dry_contact_1: false, dry_contact_2: true } }],
+    "1.42": [{ kind: "floor_heating", number: null, value: { temperature: 22, status: 1, mode: 3, normal: 24, day: 21,
+      night: 19, away: 18 } }],
+    "1.40": [{ kind: "curtain", number: 1, value: 0 }],
+  };
   const scan = {
     duration: 41.2,
     ignored_sources: 1,
@@ -24,10 +33,16 @@ function installMockHass() {
         functions: [[1, 0, 2]], channels: [{ number: 1, kind: "dimmer", name: "Svetainė", level: 40, entity: null },
           { number: 2, kind: "dimmer", name: null, level: 0, entity: null }] },
       { address: "1.40", type_code: "0x02CF", category: "curtain_module", remark: "Užuolaidos", mac: null,
-        functions: [[2, 2, 1]], channels: [{ number: 1, kind: "curtain", name: "Langas A", level: null }] },
+        functions: [[2, 2, 1]], channels: [feature("curtain", 1, "curtain", 1, "Langas A")] },
       { address: "1.30", type_code: "0x0134", category: "sensor", remark: "12in1", mac: null, functions: null,
+        channels: [feature("temperature", 1, "temperature"), feature("illuminance", 1, "illuminance"),
+          feature("motion", 1, "motion"), feature("dry_contact", 1, "dry_contact_1"),
+          feature("dry_contact", 2, "dry_contact_2")] },
+      { address: "1.42", type_code: "0x238C", category: "panel", remark: "2A Belos", mac: null,
+        functions: [[4, 1, 8], [8, 1, 1]], channels: [feature("floor_heating", 1, "floor_heating")] },
+      { address: "56.54", type_code: "0x0453", category: "logic", remark: "Logika", mac: null, functions: null,
         channels: [] },
-    ],
+    ].map((d) => ({ universal_switches: [], ...d })),
   };
   const subscriptions = {};
   let scanned = false;
@@ -45,11 +60,23 @@ function installMockHass() {
       return null;
     },
     "buspro/device/refresh": (msg) => {
-      const updates = device(msg.address).channels.map((c) => ({ kind: "channel", number: c.number, value: c.level }));
+      const updates = liveReadings[msg.address]
+        || device(msg.address).channels.map((c) => ({ kind: "channel", number: c.number, value: c.level }));
       setTimeout(() => emit(`state:${msg.address}`, { updates }), 10);
       return { levels: updates.map((u) => u.value) };
     },
     "buspro/channel/test": (msg) => {
+      if (msg.target === "curtain") {
+        const status = { open: 1, close: 2, stop: 0 }[msg.action];
+        setTimeout(() => emit(`state:${msg.address}`, { updates: [{ kind: "curtain", number: msg.channel, value: status }] }), 10);
+        return { confirmed: true, value: status, kind: "curtain", confirmed_by: "0xE3E1", latency: 0.021, error: null };
+      }
+      if (msg.target === "universal_switch") {
+        const on = msg.action === "on";
+        setTimeout(() => emit(`state:${msg.address}`, { updates: [{ kind: "universal_switch", number: msg.channel, value: on }] }), 10);
+        return { confirmed: true, value: on ? 1 : 0, kind: "universal_switch", confirmed_by: "0xE01D", latency: 0.021,
+          error: null };
+      }
       if (msg.channel === 4) {
         return { confirmed: false, value: null, kind: "output", confirmed_by: null, latency: null,
           error: "No answer from the device" };
@@ -61,15 +88,25 @@ function installMockHass() {
       return { confirmed: true, value, kind: "output", confirmed_by: "0x0032", latency: 0.021, error: null };
     },
     "buspro/entities/add": (msg) => {
+      const keys = [];
       for (const item of msg.entities) {
-        device(item.address).channels.find((c) => c.number === item.channel).entity = {
-          key: `${item.address}.${item.channel}`, source: "panel", platform: item.platform,
-          entity_id: `${item.platform}.${slug(item.name)}`, name: item.name };
+        const kind = item.kind || "output";
+        const key = kind === "output" ? `${item.address}.${item.channel}` : `${item.address}.${kind}.${item.channel}`;
+        const entity = { key, source: "panel", platform: item.platform, entity_id: `${item.platform}.${slug(item.name)}`,
+          name: item.name };
+        const d = device(item.address);
+        if (kind === "universal_switch") d.universal_switches.push({ number: item.channel, entity });
+        else if (kind === "output") d.channels.find((c) => c.number === item.channel).entity = entity;
+        else d.channels.find((c) => c.entity_kind === kind).entity = entity;
+        keys.push(key);
       }
-      return { added: msg.entities.map((e) => `${e.address}.${e.channel}`), rejected: [] };
+      return { added: keys, rejected: [] };
     },
     "buspro/entities/remove": (msg) => {
-      for (const d of scan.devices) for (const c of d.channels) if (c.entity && msg.keys.includes(c.entity.key)) c.entity = null;
+      for (const d of scan.devices) {
+        for (const c of d.channels) if (c.entity && msg.keys.includes(c.entity.key)) c.entity = null;
+        d.universal_switches = d.universal_switches.filter((u) => !msg.keys.includes(u.entity.key));
+      }
       return { removed: msg.keys };
     },
   };
@@ -131,7 +168,7 @@ async function main() {
   await panel.getByText("1.89 · Rėlės 1 aukštas").waitFor();
   assert.strictEqual(await panel.locator(".device").count(), 2);
   await panel.getByLabel("filter").selectOption("all");
-  assert.strictEqual(await panel.locator(".device").count(), 4);
+  assert.strictEqual(await panel.locator(".device").count(), 6);
 
   // Relay module: names from the device, live state, YAML channel locked.
   await panel.getByText("1.89 · Rėlės 1 aukštas").click();
@@ -166,10 +203,11 @@ async function main() {
   await panel.getByText("Pridėta entity: 2.").waitFor();
   const [add] = await calls("buspro/entities/add");
   assert.deepStrictEqual(add.entities, [
-    { platform: "switch", dimmable: false, address: "1.89", channel: 1, name: "Virtuvė",
-      device_name: "Rėlės 1 aukštas", device_model: "0x01AC", mac: "10:20:30:40:50:60:01:59" },
+    { platform: "switch", dimmable: false, address: "1.89", channel: 1, name: "Virtuvė", device_name: "Rėlės 1 aukštas",
+      device_model: "0x01AC", device_category: "output_module", mac: "10:20:30:40:50:60:01:59" },
     { platform: "light", dimmable: false, address: "1.89", channel: 2, name: "Koridoriaus lubos",
-      device_name: "Rėlės 1 aukštas", device_model: "0x01AC", mac: "10:20:30:40:50:60:01:59" },
+      device_name: "Rėlės 1 aukštas", device_model: "0x01AC", device_category: "output_module",
+      mac: "10:20:30:40:50:60:01:59" },
   ]);
   await panel.getByText("switch.virtuve").waitFor();
   await panel.getByText("light.koridoriaus_lubos").waitFor();
@@ -191,12 +229,58 @@ async function main() {
   await panel.getByLabel("level 2").fill("60");
   await row(2).getByText("✔ 60 % · 0x0032 · 21 ms").waitFor();
 
-  // Curtain module: testable, not addable yet.
+  const lastAdd = async () => (await calls("buspro/entities/add")).pop().entities;
+
+  // Curtain module: live status, test, opening time, add as a cover.
   await panel.getByText("1.40 · Užuolaidos").click();
-  await panel.getByText("Šio tipo įrenginių pridėjimas bus vėlesniame etape").waitFor();
+  await panel.locator("td.state").getByText("Stop").waitFor();
   await panel.getByRole("button", { name: "▲" }).click();
-  const curtain = (await calls("buspro/channel/test")).pop();
-  assert.deepStrictEqual([curtain.target, curtain.action, curtain.channel], ["curtain", "open", 1]);
+  await panel.getByText("✔ Atidaroma · 0xE3E1 · 21 ms").waitFor();
+  await panel.locator("td.state").getByText("Atidaroma").waitFor();
+  await panel.getByLabel("opening time").fill("35");
+  await panel.getByLabel("select curtain").check();
+  await panel.getByRole("button", { name: "Pridėti pasirinktus (1)" }).click();
+  await panel.getByText("cover.langas_a").waitFor();
+  assert.deepStrictEqual(await lastAdd(), [{ kind: "curtain", platform: "cover", channel: 1, name: "Langas A",
+    opening_time: 35, address: "1.40", device_name: "Užuolaidos", device_model: "0x02CF",
+    device_category: "curtain_module", mac: null }]);
+
+  // 12-in-1 sensor: live readings, then add temperature and motion.
+  await panel.getByText("1.30 · 12in1").click();
+  await panel.getByText("22 °C").waitFor();
+  await panel.getByText("300 lx").waitFor();
+  const featureRow = (label) => panel.locator("tbody tr", { hasText: label });
+  assert.strictEqual(await featureRow("Sausas kontaktas 2").locator("td.state").innerText(), "Įjungta");
+  assert.strictEqual(await featureRow("Sausas kontaktas 1").locator("td.state").innerText(), "Išjungta");
+  await panel.getByLabel("select temperature").check();
+  await panel.getByLabel("select motion").check();
+  await panel.getByRole("button", { name: "Pridėti pasirinktus (2)" }).click();
+  await panel.getByText("binary_sensor.12in1_judesys").waitFor();
+  assert.deepStrictEqual((await lastAdd()).map((e) => [e.kind, e.platform, e.channel, e.name, e.device_category]), [
+    ["temperature", "sensor", 1, "12in1 temperatūra", "sensor"], ["motion", "binary_sensor", 1, "12in1 judesys", "sensor"]]);
+  await shot("6-sensor");
+
+  // DLP panel: floor heating state and the note that control is not yet proven.
+  await panel.getByText("1.42 · 2A Belos").click();
+  await panel.getByText("Šildo · 22 °C → 19 °C (nakties)").waitFor();
+  await panel.getByText("Šildymo skaitymas patikrintas įrašais").waitFor();
+
+  // Logic module: no channels, but universal switches can be tested and added.
+  await panel.getByText("56.54 · Logika").click();
+  await panel.getByText("Šis įrenginys neturi kanalų").waitFor();
+  await panel.getByLabel("universal switch number").fill("100");
+  await panel.locator("details.universal").getByRole("button", { name: "ĮJ" }).click();
+  await panel.getByText("✔ Įjungta · 0xE01D · 21 ms").waitFor();
+  const universalTest = (await calls("buspro/channel/test")).pop();
+  assert.deepStrictEqual([universalTest.target, universalTest.action, universalTest.channel],
+    ["universal_switch", "on", 100]);
+  await panel.getByLabel("universal switch name").fill("Režimas");
+  await panel.getByRole("button", { name: "Pridėti kaip jungiklį" }).click();
+  await panel.getByText("switch.rezimas").waitFor();
+  assert.deepStrictEqual((await lastAdd()).map((e) => [e.kind, e.platform, e.channel, e.name]),
+    [["universal_switch", "switch", 100, "Režimas"]]);
+  assert.strictEqual(await panel.getByLabel("universal switch number").inputValue(), "");  // ready for the next one
+  await shot("7-universal");
 
   // Dark theme and phone width, for the screenshots.
   await panel.getByText("1.89 · Rėlės 1 aukštas").click();

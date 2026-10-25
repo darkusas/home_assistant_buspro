@@ -78,8 +78,12 @@ def test_finds_devices_with_categories_and_channels():
     assert devices["1.40"].channels == [ScannedChannel(1, "curtain", "Langas A"),
                                         ScannedChannel(2, "curtain", "Langas B")]
     assert devices["1.30"].remark == "12in1 Holas"
+    # 0x1647 broadcasts: the 12-in-1 sensor's readings become features.
+    assert [(c.kind, c.number) for c in devices["1.30"].channels] == [
+        ("temperature", 1), ("illuminance", 1), ("motion", 1), ("dry_contact", 1), ("dry_contact", 2)]
     assert devices["1.50"].type_code == 0x0095
-    assert devices["1.60"].channels == []
+    assert devices["1.50"].channels == [ScannedChannel(1, "floor_heating")]  # heard 0x1947
+    assert devices["1.60"].channels == [ScannedChannel(1, "temperature")]  # self-described (5, 2, 1)
 
 
 def test_scan_is_read_only_and_targeted():
@@ -179,3 +183,17 @@ def test_silent_types_are_not_asked_for_self_description():
     assert 0xE548 not in dlp  # DLP panels never answer it
     assert dlp.count(0xF003) == 1  # MAC is read without retries
     assert 0xE548 in bus.sent_codes((1, 201))  # an old relay might still answer
+
+
+
+def test_floor_heating_is_probed_on_panels_that_list_it():
+    devices = [
+        SimDevice((1, 42), 0x238C, "2A Belos", functions=[(4, 1, 8), (8, 1, 1), (9, 2, 1)], floor_heating=True),
+        SimDevice((1, 43), 0x238C, "Be šildymo", functions=[(4, 1, 8), (8, 1, 1)]),
+        SimDevice((1, 60), 0x0852, "Panelė", functions=[(4, 1, 4), (5, 2, 1)]),
+    ]
+    result, bus, _buspro = scan(devices)
+    channels = {d.address: [c.kind for c in d.channels] for d in result.devices}
+
+    assert channels == {"1.42": ["floor_heating"], "1.43": [], "1.60": ["temperature"]}
+    assert 0x1944 not in bus.sent_codes((1, 60))

@@ -86,16 +86,19 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up switches added from the bus scan."""
     # noinspection PyUnresolvedReferences
-    from .pybuspro.devices import Switch
+    from .pybuspro.devices import Switch, UniversalSwitch
 
     module = hass.data[DATA_BUSPRO]
 
+    def create(spec):
+        if spec.kind == "universal_switch":
+            device = UniversalSwitch(module.hdl, spec.device_address, spec.channel, spec.name)
+            return BusproSwitch(hass, device, device_info(spec), unique_id=spec.unique_id)
+        return BusproSwitch(hass, Switch(module.hdl, spec.device_address, spec.channel, spec.name), device_info(spec))
+
     @callback
     def add(specs):
-        async_add_entities([
-            BusproSwitch(hass, Switch(module.hdl, spec.device_address, spec.channel, spec.name), device_info(spec))
-            for spec in specs
-        ])
+        async_add_entities([create(spec) for spec in specs])
 
     add(module.entity_store.for_platform("switch"))
     config_entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_ENTITIES_ADDED.format("switch"), add))
@@ -105,10 +108,11 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 class BusproSwitch(SwitchEntity):
     """Representation of a Buspro switch."""
 
-    def __init__(self, hass, device, device_info=None):
+    def __init__(self, hass, device, device_info=None, unique_id=None):
         self._hass = hass
         self._device = device
         self._attr_device_info = device_info
+        self._unique_id = unique_id
         self.async_register_callbacks()
 
     @callback
@@ -157,4 +161,4 @@ class BusproSwitch(SwitchEntity):
     @property
     def unique_id(self):
         """Return the unique id."""
-        return self._device.device_identifier
+        return self._unique_id or self._device.device_identifier

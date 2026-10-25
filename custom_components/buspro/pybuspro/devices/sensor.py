@@ -4,7 +4,7 @@ import logging
 
 # from ..helpers.generics import Generics
 from .control import _ReadSensorStatus, _ReadStatusOfUniversalSwitch, _ReadStatusOfChannels, _ReadFloorHeatingStatus, \
-    _ReadDryContactStatus, _ReadSensorsInOneStatus, _ReadMotionSensorStatus
+    _ReadDryContactStatus, _ReadSensorsInOneStatus, _ReadMotionSensorStatus, _GenericControl
 from .device import Device
 from ..helpers.enums import *
 
@@ -120,8 +120,11 @@ class Sensor(Device):
             self._current_temperature = telegram.payload[1]
             self._call_device_updated()
 
-        elif telegram.operate_code == OperateCode.BroadcastTemperatureResponse:
-            self._current_temperature = telegram.payload[1]
+        elif telegram.operate_code in (OperateCode.BroadcastTemperatureResponse,
+                                       OperateCode.ReadTemperatureResponse):
+            # [channel, temperature]; bit 7 is the sign, bits 0-6 the magnitude.
+            temperature = telegram.payload[1]
+            self._current_temperature = -(temperature & 0x7F) if temperature & 0x80 else temperature
             self._call_device_updated()
 
         elif telegram.operate_code == OperateCode.ReadStatusOfUniversalSwitchResponse:
@@ -210,6 +213,12 @@ class Sensor(Device):
             rsios = _ReadSensorsInOneStatus(self._buspro)
             rsios.subnet_id, rsios.device_id = self._device_address
             await rsios.send()
+        elif self._device is not None and self._device == "panel":  # wall panel's temperature sensor
+            rt = _GenericControl(self._buspro)
+            rt.subnet_id, rt.device_id = self._device_address
+            rt.operate_code = OperateCode.ReadTemperature
+            rt.payload = [1]
+            await rt.send()
         elif self._device is not None and self._device == "pir":#CMS-PIR Motion Only Fetch
             rms = _ReadMotionSensorStatus(self._buspro)
             rms.subnet_id, rms.device_id = self._device_address

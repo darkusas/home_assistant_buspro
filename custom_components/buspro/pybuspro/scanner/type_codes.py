@@ -24,7 +24,9 @@ SOFTWARE_TYPES = frozenset({0xFFFC, 0xFFFD, 0xFFFE})
 KNOWN_TYPES = {
     0x0018: (SENSOR, "PIR sensor (old)"),
     0x0077: (DRY_CONTACT_MODULE, "SB-DRY-4Z dry contact module"),
-    0x0086: (PANEL, "DLP panel"),  # Also used by other products; devices that answer decide.
+    # Smart-Bus uses 0x0086 for a DLP panel; in the captures it is a temperature module that
+    # answers ReadTemperature (0x1948) with 0x1949 [channel, float32].
+    0x0086: (SENSOR, "temperature module"),
     0x0095: (PANEL, "DLP panel"),
     0x009C: (PANEL, "DLP panel v2"),
     0x012B: (PANEL, "SB-WS8M 8-key panel"),

@@ -4,6 +4,16 @@ from collections import Counter
 from dataclasses import asdict, dataclass, field
 
 from .module_reply import BIG_CURTAIN, BIG_FLOOR_HEATING, BIG_OUTPUT, BIG_PANEL, BIG_SENSOR
+
+# What a sensor or panel reports, from the operate codes it was heard sending.
+_MULTI_SENSOR = (("temperature", 1), ("illuminance", 1), ("motion", 1), ("dry_contact", 2))
+FEATURES_BY_OPERATE_CODE = {
+    0x1646: _MULTI_SENSOR, 0x1647: _MULTI_SENSOR, 0x1605: _MULTI_SENSOR,
+    0xDB01: (("motion", 1),),
+    0xE3E5: (("temperature", 1),), 0xE3E8: (("temperature", 1),),
+    0xE441: (("illuminance", 1),),
+    0x1945: (("floor_heating", 1),), 0x1947: (("floor_heating", 1),),
+}
 from .type_codes import (
     CURTAIN_MODULE, DRY_CONTACT_MODULE, FLOOR_HEATING, KNOWN_TYPES, LOGIC, LOGIC_OPERATE_CODES,
     OUTPUT_MODULE, PANEL, PANEL_OPERATE_CODES, SENSOR, SENSOR_OPERATE_CODES, SOFTWARE, SOFTWARE_TYPES,
@@ -129,11 +139,29 @@ class ScannedDevice:
         if category == DRY_CONTACT_MODULE:
             zones = sum(f.count for f in self._functions(BIG_PANEL) if f.small == 0)
             return [ScannedChannel(number, "dry_contact") for number in range(1, zones + 1)]
-        if category == SENSOR:
+        if category in (SENSOR, PANEL):
             # Numbered per kind: motion 1, illuminance 1, dry_contact 1, dry_contact 2, ...
-            return [ScannedChannel(number, f.category)
-                    for f in self._functions(BIG_SENSOR) for number in range(1, f.count + 1)]
+            return [ScannedChannel(number, kind) for kind, count in self.features() for number in range(1, count + 1)]
         return []
+
+    def features(self):
+        """(kind, count) a sensor or panel offers: from its self-description and what it sends."""
+        counts = {}
+        for f in self._functions(BIG_SENSOR):
+            if f.category != "sensor":
+                counts[f.category] = max(counts.get(f.category, 0), f.count)
+        for code in sorted(self.operate_codes):
+            for kind, count in FEATURES_BY_OPERATE_CODE.get(code, ()):
+                counts[kind] = max(counts.get(kind, 0), count)
+        order = ("temperature", "illuminance", "motion", "dry_contact", "floor_heating")
+        return sorted(counts.items(), key=lambda item: order.index(item[0]) if item[0] in order else len(order))
+
+    @property
+    def may_have_floor_heating(self):
+        """Panels that list floor heating among their functions, or DLP panels that do not describe themselves."""
+        known = KNOWN_TYPES.get(self.type_code)
+        return self.category == PANEL and (any(f.big == BIG_FLOOR_HEATING for f in self.functions or ())
+                                           or (self.functions is None and known is not None and "DLP" in known[1]))
 
     def to_dict(self):
         type_code = self.type_code

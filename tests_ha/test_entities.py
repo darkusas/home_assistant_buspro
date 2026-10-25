@@ -144,8 +144,8 @@ async def test_duplicates_are_rejected(hass, hass_ws_client):
     ]})
     assert result["added"] == ["1.89.4"]
     assert [r["reason"] for r in result["rejected"]] == [
-        "channel 1.89.1 is already added as switch",
-        "channel 1.89.1 is already added as switch",
+        "1.89.1 is already added as switch",
+        "1.89.1 is already added as switch",
         "already configured as switch.yaml_switch (YAML)",
         "already configured as switch.yaml_switch (YAML)",
     ]

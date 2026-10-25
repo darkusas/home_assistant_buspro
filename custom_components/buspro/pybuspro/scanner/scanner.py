@@ -24,7 +24,13 @@ from ..helpers.enums import OperateCode
 from .models import ScannedDevice, ScanResult
 from .module_reply import MAX_EXCLUDED_DEVICES, build_module_read_payload, parse_module_reply
 from .remarks import parse_channel_remark, parse_device_remark
-from .type_codes import GATEWAY, LOGIC, NO_MODULE_REPLY_TYPES, OUTPUT_MODULE, SOFTWARE, UNKNOWN
+from .type_codes import GATEWAY, LOGIC, NO_MODULE_REPLY_TYPES, OUTPUT_MODULE, SENSOR, SOFTWARE, UNKNOWN
+
+# How to ask a sensor for its readings; others are asked with ReadSensorStatus (0x1645).
+_SENSOR_READS = {
+    0x014A: (OperateCode.ReadSensorsInOneStatus, OperateCode.ReadSensorsInOneStatusResponse),
+    0x0018: (OperateCode.ReadMotionSensorStatus, OperateCode.ReadMotionSensorStatusResponse),
+}
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -160,7 +166,8 @@ class BusScanner:
                                 OperateCode.ReadStatusOfChannelsResponse)
 
     async def _identify(self, options):
-        targets = [d for d in self._targets() if d.remark is None or d.functions is None]
+        targets = [d for d in self._targets() if d.remark is None or d.functions is None or d.may_have_floor_heating
+                   or (d.category == SENSOR and not d.features())]
         for done, device in enumerate(targets):
             self._report("identify", len(self._devices), done, len(targets))
             if device.functions is None and device.type_code not in NO_MODULE_REPLY_TYPES:
@@ -169,6 +176,14 @@ class BusScanner:
             if device.remark is None:
                 await self._request(options, device, OperateCode.ReadDeviceRemark, (),
                                     OperateCode.ReadDeviceRemarkResponse)
+            if device.category == SENSOR and not device.features():
+                # Sensors broadcast their readings only now and then; ask for them.
+                read, answer = _SENSOR_READS.get(device.type_code, (OperateCode.ReadSensorStatus,
+                                                                    OperateCode.ReadSensorStatusResponse))
+                await self._request(options, device, read, (), answer, retries=0)
+            if device.may_have_floor_heating and not device.operate_codes & {0x1945, 0x1947}:
+                await self._request(options, device, OperateCode.ReadFloorHeatingStatus, (),
+                                    OperateCode.ReadFloorHeatingStatusResponse, retries=0)
 
     async def _read_macs(self, options):
         targets = [d for d in self._targets() if d.mac is None]
