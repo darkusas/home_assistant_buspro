@@ -340,18 +340,20 @@ class BusproClimate(ClimateEntity):
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    """Set up DLP floor heating added from the bus scan."""
+    """Set up floor heating added from the bus scan: DLP panels and floor heating module zones."""
     # noinspection PyUnresolvedReferences
-    from .pybuspro.devices import FloorHeating
+    from .pybuspro.devices import FloorHeating, FloorHeatingZone
 
     module = hass.data[DATA_BUSPRO]
 
+    def device(spec):
+        if spec.kind == "heating_zone":
+            return FloorHeatingZone(module.hdl, spec.device_address, spec.channel, spec.name)
+        return FloorHeating(module.hdl, spec.device_address, spec.name)
+
     @callback
     def add(specs):
-        async_add_entities([
-            BusproFloorHeating(FloorHeating(module.hdl, spec.device_address, spec.name), device_info(spec))
-            for spec in specs
-        ])
+        async_add_entities([BusproFloorHeating(device(spec), device_info(spec)) for spec in specs])
 
     add(module.entity_store.for_platform("climate"))
     config_entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_ENTITIES_ADDED.format("climate"), add))
@@ -364,7 +366,7 @@ FLOOR_HEATING_POLL_INTERVAL = timedelta(minutes=1)  # DLP panels do not broadcas
 
 # noinspection PyAbstractClass
 class BusproFloorHeating(ClimateEntity):
-    """Floor heating controlled by a DLP panel."""
+    """Floor heating controlled by a DLP panel, or one zone of a floor heating module."""
 
     _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
     _attr_preset_modes = list(FLOOR_HEATING_PRESETS)
@@ -407,6 +409,16 @@ class BusproFloorHeating(ClimateEntity):
     @property
     def current_temperature(self):
         return self._device.current_temperature
+
+    @property
+    def hvac_action(self):
+        """Floor heating modules report their valve; DLP panels do not."""
+        heating = getattr(self._device, "heating", None)
+        if heating is None:
+            return None
+        if not self._device.is_on:
+            return HVACAction.OFF
+        return HVACAction.HEATING if heating else HVACAction.IDLE
 
     @property
     def target_temperature(self):

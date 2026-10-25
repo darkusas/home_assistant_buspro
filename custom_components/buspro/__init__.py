@@ -66,6 +66,7 @@ TEST_TARGET_ACTIONS = {
     "output": ("on", "off", "level", "pulse"),
     "curtain": ("open", "close", "stop"),
     "universal_switch": ("on", "off"),
+    "heating_zone": ("on", "off", "level"),  # level: setpoint in °C of the mode the zone uses now
 }
 
 """{ "address": [1,74], "scene_address": [3,5] }"""
@@ -447,6 +448,8 @@ class BusproModule:
             raise HomeAssistantError(f"Action '{action}' is not available for {target}")
         if action == "level" and level is None:
             raise HomeAssistantError("Action 'level' needs a level")
+        if target == "heating_zone" and action == "level" and not 5 <= level <= 35:
+            raise HomeAssistantError("A floor heating setpoint must be 5-35 °C")
 
         try:
             if target == "curtain":
@@ -454,6 +457,11 @@ class BusproModule:
                 result = await self.controller.set_curtain(address, number, status)
             elif target == "universal_switch":
                 result = await self.controller.set_universal_switch(address, number, action == "on")
+            elif target == "heating_zone":
+                if action == "level":
+                    result = await self.controller.set_heating_zone(address, number, temperature=level)
+                else:
+                    result = await self.controller.set_heating_zone(address, number, on=action == "on")
             elif action == "pulse":
                 result = await self.controller.pulse_channel(address, number, 100 if level is None else level,
                                                              duration)

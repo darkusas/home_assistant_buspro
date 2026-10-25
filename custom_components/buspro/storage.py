@@ -24,6 +24,8 @@ KIND_PLATFORMS = {
     "dry_contact_2": ("binary_sensor",),
     "universal_switch": ("switch", "binary_sensor"),
     "floor_heating": ("climate",),
+    "heating_zone": ("climate",),
+    "floor_sensor": ("sensor",),
 }
 OUTPUT_PLATFORMS = KIND_PLATFORMS["output"]
 PLATFORMS_IN_USE = sorted({platform for platforms in KIND_PLATFORMS.values() for platform in platforms})
@@ -67,6 +69,8 @@ class EntitySpec:
             if self.platform == "switch":
                 return f"{address}-universal-{self.channel}"
             return f"{address}-{self.channel}-None-None-universal_switch"
+        if self.kind in ("heating_zone", "floor_sensor"):  # several per floor heating module
+            return f"{address}-{self.kind}-{self.channel}"
         return f"{address}-{self.kind}"
 
     def yaml_unique_ids(self) -> list[tuple[str, str]]:

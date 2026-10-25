@@ -61,11 +61,11 @@
         },
         "action": {
           "name": "Action",
-          "description": "Outputs: on, off, level, pulse. Curtains: open, close, stop. Universal switches: on, off."
+          "description": "Outputs: on, off, level, pulse. Curtains: open, close, stop. Universal switches: on, off. Floor heating zones: on, off, level (setpoint)."
         },
         "level": {
           "name": "Level",
-          "description": "Level for 'level', or for 'pulse' (default 100)."
+          "description": "Level for 'level', or for 'pulse' (default 100); for a floor heating zone, the setpoint in °C."
         },
         "duration": {
           "name": "Pulse length",

@@ -33,6 +33,12 @@ class ScannedChannel:
 
 
 @dataclass
+class FloorSensorChannel(ScannedChannel):
+    """A 1-wire floor sensor of a floor heating module; zone is the zone it belongs to."""
+    zone: int = None
+
+
+@dataclass
 class ScannedDevice:
     subnet_id: int
     device_id: int
@@ -44,6 +50,9 @@ class ScannedDevice:
     levels: dict = field(default_factory=dict)  # channel -> 0..100
     channel_names: dict = field(default_factory=dict)  # channel -> name, None if unnamed
     operate_codes: set = field(default_factory=set)  # every code heard from the device
+    zone_names: dict = field(default_factory=dict)  # floor heating module: zone -> name (0x1D03)
+    floor_sensors: dict = field(default_factory=dict)  # floor heating module: number -> FloorSensorInfo
+    floor_sensor_count: int = None  # floor heating module (0x1D13)
     # Set by the user for the device's type: {"category": ..., "kind": "relay"/"dimmer", "count": n}
     override: dict = None
 
@@ -119,6 +128,12 @@ class ScannedDevice:
             return list(range(1, 2 * self.curtain_count + 1))
         return []
 
+    def zone_numbers(self):
+        """Heating zones of a floor heating module."""
+        if self.category != FLOOR_HEATING:
+            return []
+        return list(range(1, sum(f.count for f in self._functions(BIG_FLOOR_HEATING)) + 1))
+
     def _output_count(self):
         return self.channel_count or sum(f.count for f in self._functions(BIG_OUTPUT)) or self._override_count()
 
@@ -143,8 +158,11 @@ class ScannedDevice:
                                    self.channel_names.get(2 * number - 1) or self.channel_names.get(2 * number))
                     for number in range(1, self.curtain_count + 1)]
         if category == FLOOR_HEATING:
-            return [ScannedChannel(number, "floor_heating")
-                    for number in range(1, sum(f.count for f in self._functions(BIG_FLOOR_HEATING)) + 1)]
+            zones = [ScannedChannel(number, "heating_zone", self.zone_names.get(number))
+                     for number in self.zone_numbers()]
+            sensors = [FloorSensorChannel(number, "floor_sensor", sensor.name, zone=sensor.zone)
+                       for number, sensor in sorted(self.floor_sensors.items())]
+            return zones + sensors
         if category == DRY_CONTACT_MODULE:
             zones = sum(f.count for f in self._functions(BIG_PANEL) if f.small == 0)
             return [ScannedChannel(number, "dry_contact") for number in range(1, zones + 1)]

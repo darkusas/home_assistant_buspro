@@ -9,6 +9,8 @@ import logging
 import struct
 from dataclasses import dataclass
 
+from ..devices.floor_heating_module import FLOOR_SENSOR_CODE, ZONE_STATUS_CODES, parse_floor_sensor, parse_zone_status
+
 _LOGGER = logging.getLogger(__name__)
 
 CHANNEL = "channel"  # value: level 0..100
@@ -18,6 +20,8 @@ UNIVERSAL_SWITCH = "universal_switch"  # value: bool
 SENSOR = "sensor"  # value: dict of readings
 FLOOR_HEATING = "floor_heating"  # value: dict with status, mode, setpoints (and current temperature)
 TEMPERATURE_CHANNEL = "temperature_channel"  # value: °C of one channel of a temperature module
+HEATING_ZONE = "heating_zone"  # value: dict from ZoneStatus.as_dict() (floor heating module)
+FLOOR_SENSOR = "floor_sensor"  # value: °C of a floor heating module's floor sensor
 
 
 @dataclass(frozen=True)
@@ -82,6 +86,14 @@ def decode_state(telegram):
     elif code == 0x1947 and len(p) >= 8 and p[0] == 0xF8:
         add(FLOOR_HEATING, None, {"status": p[2], "mode": p[3], "normal": p[4], "day": p[5], "night": p[6],
                                   "away": p[7]})
+    elif code in ZONE_STATUS_CODES:
+        status = parse_zone_status(p)
+        if status is not None:
+            add(HEATING_ZONE, status.zone, status.as_dict())
+    elif code == FLOOR_SENSOR_CODE:
+        sensor = parse_floor_sensor(p)
+        if sensor is not None:
+            add(FLOOR_SENSOR, sensor.number, sensor.temperature)
     elif code == 0x1949 and len(p) >= 5:
         add(TEMPERATURE_CHANNEL, p[0], round(struct.unpack("<f", bytes(p[1:5]))[0], 1))
     elif code in (0xE3E5, 0xE3E8) and len(p) >= 2:

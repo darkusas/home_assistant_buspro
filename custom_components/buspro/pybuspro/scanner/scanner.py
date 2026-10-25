@@ -7,10 +7,12 @@ Setup Tool 2 (docs/protocol-captures/2026-10-25-analysis.md):
    several rounds, since one round reaches only ~87% of devices. Everything heard on
    the bus meanwhile is recorded too, so devices that ignore both are still found.
 2. Identify: ask devices still missing a name or self-description directly.
+   Floor heating modules are asked for their 1-wire floor sensors (0x1D12, 0x1D16).
 3. Channels: ReadStatusOfChannels (0x0033) sent to each possible output module; many
    modules ignore it as a broadcast.
 4. MAC: ReadMacAddress (0xF003), a stable id that survives address changes.
-5. Names: ReadChannelRemark (0xF00E) for every output and curtain channel.
+5. Names: ReadChannelRemark (0xF00E) for every output and curtain channel, and the zone
+   names of floor heating modules (0x1D02).
 """
 
 import asyncio
@@ -20,11 +22,13 @@ import time
 from dataclasses import dataclass
 
 from ..buspro import BROADCAST_ADDRESS
+from ..devices.floor_heating_module import parse_floor_sensor, parse_floor_sensor_count, parse_zone_name
 from ..helpers.enums import OperateCode
 from .models import ScannedDevice, ScanResult
 from .module_reply import MAX_EXCLUDED_DEVICES, build_module_read_payload, parse_module_reply
 from .remarks import parse_channel_remark, parse_device_remark
-from .type_codes import GATEWAY, LOGIC, NO_MODULE_REPLY_TYPES, OUTPUT_MODULE, SENSOR, SOFTWARE, UNKNOWN
+from .type_codes import (FLOOR_HEATING, GATEWAY, LOGIC, NO_MODULE_REPLY_TYPES, OUTPUT_MODULE, SENSOR, SOFTWARE,
+                         UNKNOWN)
 
 # How to ask a sensor for its readings; others are asked with ReadSensorStatus (0x1645).
 _SENSOR_READS = {
@@ -140,6 +144,16 @@ class BusScanner:
                 device.channel_names[parsed[0]] = parsed[1]
         elif code == _READ_MAC_RESPONSE and len(payload) >= 8:
             device.mac = ":".join(f"{b:02X}" for b in payload[:8])
+        elif code == 0x1D03:
+            parsed = parse_zone_name(payload)
+            if parsed is not None:
+                device.zone_names[parsed[0]] = parsed[1]
+        elif code == 0x1D13:
+            device.floor_sensor_count = parse_floor_sensor_count(payload)
+        elif code == 0x1D17:
+            sensor = parse_floor_sensor(payload)
+            if sensor is not None:
+                device.floor_sensors[sensor.number] = sensor
 
     # Phases
 
@@ -169,7 +183,7 @@ class BusScanner:
 
     async def _identify(self, options):
         targets = [d for d in self._targets() if d.remark is None or d.functions is None or d.may_have_floor_heating
-                   or (d.category == SENSOR and not d.features())]
+                   or (d.category == SENSOR and not d.features()) or d.category == FLOOR_HEATING]
         for done, device in enumerate(targets):
             self._report("identify", len(self._devices), done, len(targets))
             if device.functions is None and device.type_code not in NO_MODULE_REPLY_TYPES:
@@ -186,6 +200,18 @@ class BusScanner:
             if device.may_have_floor_heating and not device.operate_codes & {0x1945, 0x1947}:
                 await self._request(options, device, OperateCode.ReadFloorHeatingStatus, (),
                                     OperateCode.ReadFloorHeatingStatusResponse, retries=0)
+            if device.category == FLOOR_HEATING:
+                await self._read_floor_sensors(options, device)
+
+    async def _read_floor_sensors(self, options, device):
+        if device.floor_sensor_count is None:
+            await self._request(options, device, OperateCode.ReadFloorSensorCount, (),
+                                OperateCode.ReadFloorSensorCountResponse)
+        for number in range(1, (device.floor_sensor_count or 0) + 1):
+            if number not in device.floor_sensors:
+                await self._request(options, device, OperateCode.ReadFloorSensor, [number],
+                                    OperateCode.ReadFloorSensorResponse,
+                                    match=lambda telegram, number=number: telegram.payload[:1] == [number])
 
     async def _read_macs(self, options):
         targets = [d for d in self._targets() if d.mac is None]
@@ -195,11 +221,14 @@ class BusScanner:
             await self._request(options, device, _READ_MAC, (), _READ_MAC_RESPONSE, retries=0)
 
     async def _read_channel_names(self, options):
-        work = [(d, n) for d in self._targets() for n in d.channel_numbers_with_names() if n not in d.channel_names]
-        for done, (device, number) in enumerate(work):
+        channel = (OperateCode.ReadChannelRemark, OperateCode.ReadChannelRemarkResponse)
+        zone = (OperateCode.ReadFloorHeatingZoneRemark, OperateCode.ReadFloorHeatingZoneRemarkResponse)
+        work = [(d, n, channel) for d in self._targets() for n in d.channel_numbers_with_names()
+                if n not in d.channel_names]
+        work += [(d, n, zone) for d in self._targets() for n in d.zone_numbers() if n not in d.zone_names]
+        for done, (device, number, (read, answer)) in enumerate(work):
             self._report("names", len(self._devices), done, len(work))
-            await self._request(options, device, OperateCode.ReadChannelRemark, [number],
-                                OperateCode.ReadChannelRemarkResponse,
+            await self._request(options, device, read, [number], answer,
                                 match=lambda telegram, number=number: telegram.payload[:1] == [number])
 
     # Helpers

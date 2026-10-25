@@ -19,7 +19,17 @@ function installMockHass() {
     "1.42": [{ kind: "floor_heating", number: null, value: { temperature: 22, status: 1, mode: 3, normal: 24, day: 21,
       night: 19, away: 18 } }],
     "1.40": [{ kind: "curtain", number: 1, value: 0 }],
+    "1.204": [
+      { kind: "heating_zone", number: 1, value: { on: true, mode: 1, timer: 0, temperature: 21, valve: false, normal: 21,
+        day: 21, night: 20, away: 14, target: 21 } },
+      { kind: "heating_zone", number: 3, value: { on: true, mode: 5, timer: 1, temperature: 22, valve: true, normal: 23,
+        day: 22, night: 20, away: 16, target: 20 } },
+      { kind: "floor_sensor", number: 1, value: 24 },
+    ],
   };
+  const zone = (number, name) => feature("heating_zone", number, "heating_zone", number, name);
+  const floorSensor = (number, name, zoneNumber) => (
+    { ...feature("floor_sensor", number, "floor_sensor", number, name), zone: zoneNumber });
   const scan = {
     duration: 41.2,
     ignored_sources: 1,
@@ -44,6 +54,9 @@ function installMockHass() {
         channels: [] },
       { address: "1.19", type_code: "0x1194", category: "unknown", remark: "AS1-2", mac: null, functions: null,
         channels: [] },
+      { address: "1.204", type_code: "0x00CF", category: "floor_heating", remark: "Šildymas", mac: null,
+        functions: [[8, 0, 6]], channels: [zone(1, "Sandėlis"), zone(2, null), zone(3, "Svetainė"),
+          floorSensor(1, "Svetainės grindys", 3)] },
     ].map((d) => ({ universal_switches: [], override: null, ...d })),
   };
   const subscriptions = {};
@@ -73,6 +86,10 @@ function installMockHass() {
         setTimeout(() => emit(`state:${msg.address}`, { updates: [{ kind: "curtain", number: msg.channel, value: status }] }), 10);
         return { confirmed: true, value: status, kind: "curtain", confirmed_by: "0xE3E1", latency: 0.021, error: null };
       }
+      if (msg.target === "heating_zone") {
+        const value = msg.action === "level" ? msg.level : (msg.action === "on" ? 1 : 0);
+        return { confirmed: true, value, kind: "heating_zone", confirmed_by: "0x1C5D", latency: 0.021, error: null };
+      }
       if (msg.target === "universal_switch") {
         const on = msg.action === "on";
         setTimeout(() => emit(`state:${msg.address}`, { updates: [{ kind: "universal_switch", number: msg.channel, value: on }] }), 10);
@@ -99,7 +116,7 @@ function installMockHass() {
         const d = device(item.address);
         if (kind === "universal_switch") d.universal_switches.push({ number: item.channel, entity });
         else if (kind === "output") d.channels.find((c) => c.number === item.channel).entity = entity;
-        else d.channels.find((c) => c.entity_kind === kind).entity = entity;
+        else d.channels.find((c) => c.entity_kind === kind && c.entity_number === item.channel).entity = entity;
         keys.push(key);
       }
       return { added: keys, rejected: [] };
@@ -190,7 +207,7 @@ async function main() {
   await panel.getByText("1.89 · Rėlės 1 aukštas").waitFor();
   assert.strictEqual(await panel.locator(".device").count(), 2);
   await panel.getByLabel("filter").selectOption("all");
-  assert.strictEqual(await panel.locator(".device").count(), 7);
+  assert.strictEqual(await panel.locator(".device").count(), 8);
 
   // Relay module: names from the device, live state, YAML channel locked.
   await panel.getByText("1.89 · Rėlės 1 aukštas").click();
@@ -303,6 +320,31 @@ async function main() {
     [["universal_switch", "switch", 100, "Režimas"]]);
   assert.strictEqual(await panel.getByLabel("universal switch number").inputValue(), "");  // ready for the next one
   await shot("7-universal");
+
+  // Floor heating module: zones and floor sensors with live values, zone tests, add as climate and sensor.
+  await panel.getByText("1.204 · Šildymas").click();
+  await panel.getByText("Šildo · 22 °C → 20 °C (laikmatis) · vožtuvas atidarytas").waitFor();
+  await panel.getByText("Šildo · 21 °C → 21 °C (normalus)").waitFor();
+  await panel.getByText("Grindų termometras 1 · zona 3").waitFor();
+  await panel.locator("td.state").getByText("24 °C").waitFor();
+  await panel.getByText("Valdymas atliekamas pagal HDL dokumentaciją").waitFor();
+  assert.strictEqual(await panel.getByLabel("name heating_zone").nth(1).inputValue(), "Šildymas zona 2");  // unnamed zone
+  const zoneRow = (n) => panel.locator("tbody tr", { has: page.locator("td.number", { hasText: new RegExp(`^Zona ${n}$`) }) });
+  await zoneRow(3).getByRole("button", { name: "IŠJ" }).click();
+  await zoneRow(3).getByText("✔ Išjungta · 0x1C5D · 21 ms").waitFor();
+  await panel.getByLabel("setpoint 3").fill("21");
+  await zoneRow(3).getByRole("button", { name: "Nustatyti" }).click();
+  await zoneRow(3).getByText("✔ 21 °C · 0x1C5D · 21 ms").waitFor();
+  assert.deepStrictEqual((await calls("buspro/channel/test")).slice(-2).map((m) => [m.target, m.channel, m.action, m.level]),
+    [["heating_zone", 3, "off", undefined], ["heating_zone", 3, "level", 21]]);
+  await zoneRow(3).getByLabel("select heating_zone").check();
+  await panel.getByLabel("select floor_sensor").check();
+  await panel.getByRole("button", { name: "Pridėti pasirinktus (2)" }).click();
+  await panel.getByText("climate.svetaine").waitFor();
+  assert.deepStrictEqual((await lastAdd()).map((e) => [e.kind, e.platform, e.channel, e.name, e.device_category]), [
+    ["heating_zone", "climate", 3, "Svetainė", "floor_heating"],
+    ["floor_sensor", "sensor", 1, "Svetainės grindys", "floor_heating"]]);
+  await shot("9-floor-heating");
 
   // Unknown device: its type code is shown and its type can be set by hand.
   await panel.locator(".device", { hasText: "1.19 · AS1-2" }).getByText("Nežinomas · 0x1194").waitFor();

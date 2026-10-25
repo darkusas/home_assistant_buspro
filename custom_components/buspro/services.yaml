@@ -43,6 +43,7 @@ test_channel:
             - output
             - curtain
             - universal_switch
+            - heating_zone
     action:
       required: true
       selector:

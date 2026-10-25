@@ -22,7 +22,10 @@ from homeassistant.const import (
     CONF_DEVICE_CLASS, 
     CONF_SCAN_INTERVAL,
 )
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import callback
+from homeassistant.helpers import event
 from homeassistant.helpers.entity import Entity
 
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -103,19 +106,22 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     async_add_entities(devices)
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    """Set up temperature and illuminance sensors added from the bus scan."""
+    """Set up temperature and illuminance sensors, and floor heating module floor sensors, from the bus scan."""
     # noinspection PyUnresolvedReferences
-    from .pybuspro.devices import Sensor
+    from .pybuspro.devices import FloorSensor, Sensor
 
     module = hass.data[DATA_BUSPRO]
 
+    def entity(spec):
+        if spec.kind == "floor_sensor":
+            return BusproFloorSensor(FloorSensor(module.hdl, spec.device_address, spec.channel, spec.name),
+                                     device_info(spec))
+        return BusproSensor(hass, Sensor(module.hdl, spec.device_address, device=spec.options.get("device", ""),
+                                         name=spec.name), spec.kind, 0, DEFAULT_CONF_OFFSET, device_info(spec))
+
     @callback
     def add(specs):
-        async_add_entities([
-            BusproSensor(hass, Sensor(module.hdl, spec.device_address, device=spec.options.get("device", ""),
-                                      name=spec.name), spec.kind, 0, DEFAULT_CONF_OFFSET, device_info(spec))
-            for spec in specs
-        ])
+        async_add_entities([entity(spec) for spec in specs])
 
     add(module.entity_store.for_platform("sensor"))
     config_entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_ENTITIES_ADDED.format("sensor"), add))
@@ -260,3 +266,43 @@ class BusproSensor(Entity):
         #self.async_write_ha_state()
         if self.hass is not None:
             self.async_write_ha_state()
+
+FLOOR_SENSOR_POLL_INTERVAL = timedelta(minutes=1)  # the module reports floor sensors only when asked
+
+
+# noinspection PyAbstractClass
+class BusproFloorSensor(SensorEntity):
+    """A 1-wire floor sensor of a floor heating module."""
+
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_should_poll = False
+
+    def __init__(self, device, device_info=None):
+        self._device = device
+        self._attr_device_info = device_info
+        self._attr_name = device.name
+        self._attr_unique_id = device.device_identifier
+
+    async def async_added_to_hass(self):
+        async def updated(_device):
+            self.async_write_ha_state()
+
+        self._device.register_device_updated_cb(updated)
+        self.async_on_remove(event.async_track_time_interval(self.hass, self._async_poll, FLOOR_SENSOR_POLL_INTERVAL))
+        await self._device.read_status()
+
+    async def async_will_remove_from_hass(self):
+        self._device.close()
+
+    async def _async_poll(self, _now=None):
+        await self._device.read_status()
+
+    @property
+    def available(self):
+        return self.hass.data[DATA_BUSPRO].connected and self._device.info is not None
+
+    @property
+    def native_value(self):
+        return self._device.temperature
