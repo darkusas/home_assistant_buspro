@@ -1,6 +1,6 @@
 # HDL Buspro įrenginių skanavimo ir pridėjimo įrankis — įgyvendinimo planas
 
-Būsena: **planas** (kodas dar nerašytas). Data: 2026-10-25.
+Būsena (2026-10-25): **etapas 1 (bibliotekos pamatai) įgyvendintas**; etapo 0 įrankiai (`tools/hdl_probe.py`, `docs/protocol-captures/README.md`) paruošti ir laukia matavimų su tikra įranga.
 
 ## 1. Tikslas
 
