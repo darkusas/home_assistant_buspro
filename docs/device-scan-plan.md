@@ -1,6 +1,6 @@
 # HDL Buspro įrenginių skanavimo ir pridėjimo įrankis — įgyvendinimo planas
 
-Būsena (2026-10-25): **etapai 0–4 atlikti** (skaneris ir testavimas: `pybuspro/scanner/`, servisai `buspro.scan` ir `buspro.test_channel`, `tools/hdl_probe.py scan|set|pulse`; entity iš skenavimo: `storage.py`, `websocket_api.py` `buspro/entities/*`, `switch`/`light` `async_setup_entry`); etapas 0 pagal du Setup Tool 2 Wireshark įrašus — rezultatai `docs/protocol-captures/2026-10-25-analysis.md` (jie turi pirmenybę prieš 2 skyriaus spėjimus).
+Būsena (2026-10-25): **etapai 0–5 atlikti — MVP**: skaneris ir testavimas (`pybuspro/scanner/`, servisai `buspro.scan` ir `buspro.test_channel`, `tools/hdl_probe.py scan|set|pulse`), entity iš skenavimo (`storage.py`, `switch`/`light` `async_setup_entry`), šoninis skydelis (`frontend/buspro-panel.js`, `panel.py`, WS `buspro/*` komandos `websocket_api.py`). Etapo 0 rezultatai pagal du Setup Tool 2 Wireshark įrašus — `docs/protocol-captures/2026-10-25-analysis.md` (jie turi pirmenybę prieš 2 skyriaus spėjimus).
 
 ## 1. Tikslas
 

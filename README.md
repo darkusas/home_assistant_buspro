@@ -13,6 +13,17 @@ Restart Home Assistant.
 
 Go to Settings > Integrations and Add Integration "HDL Buspro". Type in IP address and port number of the gateway.
 
+## Adding devices from a bus scan (HDL Buspro panel)
+
+With the integration added under Settings > Integrations, administrators get an **HDL Buspro** item in the sidebar:
+
+1. **Scan bus** finds the HDL devices and reads the names stored in them (device and channel remarks). The scan is read-only and takes about a minute.
+2. Select a device to see its channels with their names and live state.
+3. Test a channel with **ON**, **OFF** or **Pulse** (on for 2 seconds, then back to its previous state); dimmers also have a slider. The result shows what the device answered. This switches the real load.
+4. Tick the channels you want, adjust their names and choose switch, light (on/off) or light (dimmable), then press **Add selected**. The entities appear right away, grouped under one device per HDL device, without editing YAML or restarting.
+
+Relay, dimmer and DMX channels can be added now; curtain channels can be tested. Channels already configured in YAML are marked and cannot be added a second time. Added entities are stored in `.storage/buspro.entities` and can be removed from the panel.
+
 ## Configuration
 
 #### Light platform
@@ -317,3 +328,12 @@ This shows Fan seperately on Google Home and HA, so they are not confused with l
 # Light:
 non dimmable lights were reporting as dimmable to HA, fixed this bug
 Fixed current status getting updated on HA  
+
+## Development
+
+```
+pip install -r requirements_test.txt && pytest                          # pybuspro library, no Home Assistant needed
+pip install -r requirements_test_ha.txt && pytest tests_ha              # Home Assistant integration
+node tests_frontend/panel_test.cjs [screenshot directory]               # panel in Chromium (Playwright)
+```
+`tools/hdl_probe.py` talks to a real gateway without Home Assistant (scan, read names, test channels).

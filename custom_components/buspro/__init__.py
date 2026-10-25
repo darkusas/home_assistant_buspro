@@ -147,6 +147,9 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
 
 async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
     """Unload the entities added from the bus scan; the bus connection stays for YAML platforms."""
+    module = hass.data.get(DOMAIN)
+    if isinstance(module, BusproModule):
+        module.async_unregister_panel()
     return await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
 
 
@@ -165,6 +168,9 @@ class BusproModule:
         self.last_scan = None
         self.config_entry = None
         self.entity_store = None
+        self.scan_progress = None
+        self._scan_listeners = []
+        self._panel_registered = False
         self.init_hdl()
 
     def init_hdl(self):
@@ -188,6 +194,33 @@ class BusproModule:
             self.entity_store = EntityStore(self.hass)
             await self.entity_store.async_load()
             websocket_api.async_register(self.hass)
+        if not self._panel_registered:
+            from . import panel
+            self._panel_registered = await panel.async_register(self.hass)
+
+    def async_unregister_panel(self):
+        if self._panel_registered:
+            from . import panel
+            panel.async_unregister(self.hass)
+            self._panel_registered = False
+
+    def channel_entity(self, subnet_id, device_id, channel):
+        """The entity for an output channel: added from the panel, configured in YAML, or None."""
+        from .storage import EntitySpec
+
+        key = f"{subnet_id}.{device_id}.{channel}"
+        entity_registry = er.async_get(self.hass)
+        spec = self.entity_store.get(key) if self.entity_store else None
+        if spec is not None:
+            entity_id = entity_registry.async_get_entity_id(spec.platform, DOMAIN, spec.unique_id)
+            return {"key": key, "source": "panel", "platform": spec.platform, "entity_id": entity_id,
+                    "name": spec.name}
+        yaml_entity_id = self._yaml_entity_for_channel(entity_registry, EntitySpec("switch", subnet_id, device_id,
+                                                                                    channel, ""))
+        if yaml_entity_id is not None:
+            return {"key": key, "source": "yaml", "platform": yaml_entity_id.split(".")[0],
+                    "entity_id": yaml_entity_id, "name": None}
+        return None
 
     async def async_add_entity_specs(self, specs):
         """Store and create entities. Returns (added specs, [(spec, reason)] rejected)."""
@@ -220,7 +253,7 @@ class BusproModule:
         for platform in OUTPUT_PLATFORMS:
             entity_id = entity_registry.async_get_entity_id(platform, DOMAIN, spec.unique_id)
             entry = entity_registry.async_get(entity_id) if entity_id else None
-            if (entry is not None and entry.config_entry_id != self.config_entry.entry_id
+            if (entry is not None and (self.config_entry is None or entry.config_entry_id != self.config_entry.entry_id)
                     and self.hass.states.get(entity_id) is not None):
                 return entity_id
         return None
@@ -289,42 +322,69 @@ class BusproModule:
         else:
             await universal_switch.set_off()
 
-    async def service_scan(self, call: ServiceCall) -> ServiceResponse:
-        """Service for scanning the bus; returns what was found"""
+    @staticmethod
+    def scan_options(rounds, interval, read_names, read_mac):
         # noinspection PyUnresolvedReferences
         from .pybuspro.scanner import ScanOptions
 
+        return ScanOptions(search_rounds=rounds, search_interval=interval, settle_time=interval / 2,
+                           read_channel_names=read_names, read_mac=read_mac)
+
+    def add_scan_listener(self, listener):
+        """listener(event dict) is called with progress, done and error events. Returns a remover."""
+        self._scan_listeners.append(listener)
+
+        def remove():
+            if listener in self._scan_listeners:
+                self._scan_listeners.remove(listener)
+
+        return remove
+
+    def _notify_scan(self, event):
+        for listener in list(self._scan_listeners):
+            try:
+                listener(event)
+            except Exception:
+                _LOGGER.exception("Scan listener failed")
+
+    async def async_run_scan(self, options):
+        """Scan the bus, keep the result and tell listeners how it goes."""
         if self.scanner.running:
             raise HomeAssistantError("An HDL bus scan is already running")
 
-        interval = call.data[SERVICE_BUSPRO_ATTR_INTERVAL]
-        options = ScanOptions(
-            search_rounds=call.data[SERVICE_BUSPRO_ATTR_ROUNDS],
-            search_interval=interval,
-            settle_time=interval / 2,
-            read_channel_names=call.data[SERVICE_BUSPRO_ATTR_READ_NAMES],
-            read_mac=call.data[SERVICE_BUSPRO_ATTR_READ_MAC],
-        )
+        def progress(scan_progress):
+            self.scan_progress = scan_progress
+            self._notify_scan({"event": "progress", "progress": vars(scan_progress)})
+
         _LOGGER.info("Starting HDL bus scan")
-        result = await self.scanner.scan(options)
+        try:
+            result = await self.scanner.scan(options, progress)
+        except Exception as err:
+            self.scan_progress = None
+            self._notify_scan({"event": "error", "message": str(err)})
+            raise
+        self.scan_progress = None
         self.last_scan = result
 
         _LOGGER.info("HDL bus scan found %d devices in %.0f s", len(result.devices), result.duration)
         for device in result.devices:
             _LOGGER.debug("Found %s %s '%s' with %d channels", device.address, device.category,
                           device.remark, len(device.channels))
+        self._notify_scan({"event": "done", "devices": len(result.devices)})
+        return result
+
+    async def service_scan(self, call: ServiceCall) -> ServiceResponse:
+        """Service for scanning the bus; returns what was found"""
+        options = self.scan_options(call.data[SERVICE_BUSPRO_ATTR_ROUNDS], call.data[SERVICE_BUSPRO_ATTR_INTERVAL],
+                                    call.data[SERVICE_BUSPRO_ATTR_READ_NAMES], call.data[SERVICE_BUSPRO_ATTR_READ_MAC])
+        result = await self.async_run_scan(options)
         return result.to_dict()
 
-    async def service_test_channel(self, call: ServiceCall) -> ServiceResponse:
-        """Service for switching a channel directly on the bus, confirmed by the device"""
+    async def async_test_channel(self, address, number, target, action, level=None, duration=2):
+        """Switch a channel directly on the bus; returns the device's confirmation as a dict."""
         # noinspection PyUnresolvedReferences
         from .pybuspro.scanner import BusControlError, CURTAIN_CLOSE, CURTAIN_OPEN, CURTAIN_STOP
 
-        address = call.data[SERVICE_BUSPRO_ATTR_ADDRESS]
-        number = call.data[SERVICE_BUSPRO_ATTR_CHANNEL]
-        target = call.data[SERVICE_BUSPRO_ATTR_TARGET]
-        action = call.data[SERVICE_BUSPRO_ATTR_ACTION]
-        level = call.data.get(SERVICE_BUSPRO_ATTR_LEVEL)
         if action not in TEST_TARGET_ACTIONS[target]:
             raise HomeAssistantError(f"Action '{action}' is not available for {target}")
         if action == "level" and level is None:
@@ -337,14 +397,20 @@ class BusproModule:
             elif target == "universal_switch":
                 result = await self.controller.set_universal_switch(address, number, action == "on")
             elif action == "pulse":
-                result = await self.controller.pulse_channel(
-                    address, number, 100 if level is None else level, call.data[SERVICE_BUSPRO_ATTR_DURATION])
+                result = await self.controller.pulse_channel(address, number, 100 if level is None else level,
+                                                             duration)
             else:
-                result = await self.controller.set_channel(
-                    address, number, {"on": 100, "off": 0}.get(action, level))
+                result = await self.controller.set_channel(address, number, {"on": 100, "off": 0}.get(action, level))
         except BusControlError as err:
             raise HomeAssistantError(str(err)) from err
         return result.to_dict()
+
+    async def service_test_channel(self, call: ServiceCall) -> ServiceResponse:
+        """Service for switching a channel directly on the bus, confirmed by the device"""
+        return await self.async_test_channel(
+            call.data[SERVICE_BUSPRO_ATTR_ADDRESS], call.data[SERVICE_BUSPRO_ATTR_CHANNEL],
+            call.data[SERVICE_BUSPRO_ATTR_TARGET], call.data[SERVICE_BUSPRO_ATTR_ACTION],
+            call.data.get(SERVICE_BUSPRO_ATTR_LEVEL), call.data[SERVICE_BUSPRO_ATTR_DURATION])
 
     def register_services(self):
 
