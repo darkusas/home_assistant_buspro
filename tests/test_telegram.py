@@ -132,3 +132,19 @@ def test_send_interval_spaces_telegrams():
     times = asyncio.run(run())
     assert len(times) == 3
     assert all(later - earlier >= 0.045 for earlier, later in zip(times, times[1:]))
+
+
+def test_device_close_unregisters_callbacks():
+    from pybuspro.devices import Switch
+
+    async def run():
+        buspro = Buspro((GATEWAY, ("", 6000)), asyncio.get_running_loop())
+        switch = Switch(buspro, (1, 89), 3, "Test")
+        switch.register_device_updated_cb(lambda device: None)
+        registered = len(buspro._telegram_received_cbs)
+        switch.close()
+        switch.close()  # closing twice is harmless
+        return registered, buspro._telegram_received_cbs, switch.device_updated_cbs
+
+    registered, remaining, updated = asyncio.run(run())
+    assert registered == 1 and remaining == [] and updated == []

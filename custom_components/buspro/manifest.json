@@ -4,8 +4,12 @@
   "config_flow": true,
   "documentation": "https://github.com/eyesoft/home_assistant_buspro",
   "issue_tracker": "https://github.com/eyesoft/home_assistant_buspro/issues",
-  "codeowners": ["@eyesoft"],
-  "dependencies": [],
+  "codeowners": [
+    "@eyesoft"
+  ],
+  "dependencies": [
+    "websocket_api"
+  ],
   "requirements": [],
   "ssdp": [],
   "zeroconf": [],

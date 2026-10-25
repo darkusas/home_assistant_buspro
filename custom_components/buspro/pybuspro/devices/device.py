@@ -15,6 +15,7 @@ class Device(object):
         self._buspro = buspro
         self._name = name
         self.device_updated_cbs = []
+        self._registered_telegram_cbs = []  # (callback, postfix) registered by this device
 
     @property
     def name(self):
@@ -22,9 +23,18 @@ class Device(object):
 
     def register_telegram_received_cb(self, telegram_received_cb, postfix=None):
         self._buspro.register_telegram_received_device_cb(telegram_received_cb, self._device_address, postfix)
+        self._registered_telegram_cbs.append((telegram_received_cb, postfix))
 
     def unregister_telegram_received_cb(self, telegram_received_cb, postfix=None):
         self._buspro.unregister_telegram_received_device_cb(telegram_received_cb, self._device_address, postfix)
+        if (telegram_received_cb, postfix) in self._registered_telegram_cbs:
+            self._registered_telegram_cbs.remove((telegram_received_cb, postfix))
+
+    def close(self):
+        """Stop receiving telegrams and sending updates, e.g. when its entity is removed."""
+        for telegram_received_cb, postfix in list(self._registered_telegram_cbs):
+            self.unregister_telegram_received_cb(telegram_received_cb, postfix)
+        self.device_updated_cbs.clear()
 
     def register_device_updated_cb(self, device_updated_cb):
         """Register device updated callback."""

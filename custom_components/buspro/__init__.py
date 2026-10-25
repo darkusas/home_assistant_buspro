@@ -19,10 +19,13 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.config_entries import ConfigEntry
 
-from .address_validation import validate_buspro_address_str
+from .address_validation import parse_device_address
+from .const import PLATFORMS, SIGNAL_ENTITIES_ADDED
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -92,17 +95,9 @@ SERVICE_BUSPRO_SCAN_SCHEMA = vol.Schema({
 })
 
 
-def _device_address(value):
-    """'1.89' -> (1, 89)"""
-    parts = validate_buspro_address_str(value).split(".")
-    if len(parts) != 2:
-        raise vol.Invalid("address must be '<subnet ID>.<device ID>', e.g. '1.89'")
-    return int(parts[0]), int(parts[1])
-
-
 """{ "address": "1.89", "channel": 3, "action": "pulse", "duration": 2 }"""
 SERVICE_BUSPRO_TEST_CHANNEL_SCHEMA = vol.Schema({
-    vol.Required(SERVICE_BUSPRO_ATTR_ADDRESS): vol.All(cv.string, _device_address),
+    vol.Required(SERVICE_BUSPRO_ATTR_ADDRESS): vol.All(cv.string, parse_device_address),
     vol.Required(SERVICE_BUSPRO_ATTR_CHANNEL): vol.All(vol.Coerce(int), vol.Range(min=1, max=255)),
     vol.Optional(SERVICE_BUSPRO_ATTR_TARGET, default="output"): vol.In(list(TEST_TARGET_ACTIONS)),
     vol.Required(SERVICE_BUSPRO_ATTR_ACTION): vol.In(["on", "off", "level", "pulse", "open", "close", "stop"]),
@@ -135,17 +130,25 @@ async def async_setup(hass: HomeAssistant, config: dict):
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
     """Setup the Buspro component. """
-    hass.data.setdefault(DOMAIN, {})
+    module = hass.data.get(DOMAIN)
+    if not isinstance(module, BusproModule):
+        host = config_entry.data.get(CONF_HOST, "")
+        port = config_entry.data.get(CONF_PORT, 1)
+        module = BusproModule(hass, host, port)
+        hass.data[DOMAIN] = module
+        await module.start()
+        module.register_services()
+    # On a reload the running module (and its UDP socket) is reused.
 
-    host = config_entry.data.get(CONF_HOST, "")
-    port = config_entry.data.get(CONF_PORT, 1)
-
-    hass.data[DOMAIN] = BusproModule(hass, host, port)
-    await hass.data[DOMAIN].start()
-
-    hass.data[DOMAIN].register_services()
-
+    await module.async_setup_entry(config_entry)
+    await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
     return True
+
+
+async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
+    """Unload the entities added from the bus scan; the bus connection stays for YAML platforms."""
+    return await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
+
 
 class BusproModule:
     """Representation of Buspro Object."""
@@ -160,6 +163,8 @@ class BusproModule:
         self.controller = None
         self.state_monitor = None
         self.last_scan = None
+        self.config_entry = None
+        self.entity_store = None
         self.init_hdl()
 
     def init_hdl(self):
@@ -172,6 +177,69 @@ class BusproModule:
         self.controller = BusController(self.hdl)
         self.state_monitor = StateMonitor(self.hdl)
         # self.hdl.register_telegram_received_all_messages_cb(self.telegram_received_cb)
+
+    async def async_setup_entry(self, config_entry):
+        """Load the entities added from the bus scan and register the panel's API."""
+        from . import websocket_api
+        from .storage import EntityStore
+
+        self.config_entry = config_entry
+        if self.entity_store is None:
+            self.entity_store = EntityStore(self.hass)
+            await self.entity_store.async_load()
+            websocket_api.async_register(self.hass)
+
+    async def async_add_entity_specs(self, specs):
+        """Store and create entities. Returns (added specs, [(spec, reason)] rejected)."""
+        entity_registry = er.async_get(self.hass)
+        added, rejected = [], []
+        for spec in specs:
+            existing = self.entity_store.get(spec.key)
+            if existing is not None or spec.key in {s.key for s in added}:
+                platform = existing.platform if existing else spec.platform
+                rejected.append((spec, f"channel {spec.key} is already added as {platform}"))
+                continue
+            yaml_entity_id = self._yaml_entity_for_channel(entity_registry, spec)
+            if yaml_entity_id is not None:
+                rejected.append((spec, f"already configured as {yaml_entity_id} (YAML)"))
+                continue
+            added.append(spec)
+
+        if added:
+            await self.entity_store.async_add(added)
+            for platform in PLATFORMS:
+                platform_specs = [spec for spec in added if spec.platform == platform]
+                if platform_specs:
+                    async_dispatcher_send(self.hass, SIGNAL_ENTITIES_ADDED.format(platform), platform_specs)
+        return added, rejected
+
+    def _yaml_entity_for_channel(self, entity_registry, spec):
+        """A running entity for the same channel that this config entry does not own, on any output platform."""
+        from .storage import OUTPUT_PLATFORMS
+
+        for platform in OUTPUT_PLATFORMS:
+            entity_id = entity_registry.async_get_entity_id(platform, DOMAIN, spec.unique_id)
+            entry = entity_registry.async_get(entity_id) if entity_id else None
+            if (entry is not None and entry.config_entry_id != self.config_entry.entry_id
+                    and self.hass.states.get(entity_id) is not None):
+                return entity_id
+        return None
+
+    async def async_remove_entity_specs(self, keys):
+        """Remove entities added from the bus scan, and their device when it has no entities left."""
+        removed = await self.entity_store.async_remove(keys)
+        entity_registry = er.async_get(self.hass)
+        device_registry = dr.async_get(self.hass)
+        for spec in removed:
+            entity_id = entity_registry.async_get_entity_id(spec.platform, DOMAIN, spec.unique_id)
+            if entity_id is None:
+                continue
+            device_id = entity_registry.async_get(entity_id).device_id
+            entity_registry.async_remove(entity_id)
+            if device_id and not er.async_entries_for_device(entity_registry, device_id,
+                                                             include_disabled_entities=True):
+                device_registry.async_remove_device(device_id)
+        return removed
 
     async def start(self):
         """Start Buspro object. Connect to tunneling device."""

@@ -54,3 +54,12 @@ def validate_optional_buspro_address_str(value: Any) -> str:
     if value in (None, ""):
         return ""
     return validate_buspro_address_str(value)
+
+
+def parse_device_address(value: Any) -> tuple[int, int]:
+    """Validate a device address such as '1.89' and return (subnet ID, device ID)."""
+
+    parts = validate_buspro_address_str(value).split(".")
+    if len(parts) != 2:
+        raise vol.Invalid("address must be '<subnet ID>.<device ID>', e.g. '1.89'")
+    return int(parts[0]), int(parts[1])
