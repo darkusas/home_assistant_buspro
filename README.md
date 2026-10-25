@@ -358,4 +358,6 @@ pip install -r requirements_test.txt && pytest                          # pybusp
 pip install -r requirements_test_ha.txt && pytest tests_ha              # Home Assistant integration
 node tests_frontend/panel_test.cjs [screenshot directory]               # panel in Chromium (Playwright)
 ```
+GitHub Actions run these three (`.github/workflows/tests.yml`) and the HACS and hassfest validation (`.github/workflows/validate.yml`).
+
 `tools/hdl_probe.py` talks to a real gateway without Home Assistant (scan, read names, test channels).
