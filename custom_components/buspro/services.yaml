@@ -1,1 +1,121 @@
-
+# Names and descriptions are in strings.json (translations/*.json).
+scan:
+  fields:
+    rounds:
+      default: 4
+      selector:
+        number:
+          min: 1
+          max: 10
+    interval:
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 60
+          unit_of_measurement: s
+    read_names:
+      default: true
+      selector:
+        boolean:
+    read_mac:
+      default: true
+      selector:
+        boolean:
+test_channel:
+  fields:
+    address:
+      required: true
+      example: "1.89"
+      selector:
+        text:
+    channel:
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 255
+    target:
+      default: output
+      selector:
+        select:
+          options:
+            - output
+            - curtain
+            - universal_switch
+    action:
+      required: true
+      selector:
+        select:
+          options:
+            - "on"
+            - "off"
+            - level
+            - pulse
+            - open
+            - close
+            - stop
+    level:
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
+    duration:
+      default: 2
+      selector:
+        number:
+          min: 0.5
+          max: 30
+          step: 0.5
+          unit_of_measurement: s
+send_message:
+  fields:
+    address:
+      required: true
+      example: "[1, 74]"
+      selector:
+        object:
+    operate_code:
+      required: true
+      example: "[4, 78]"
+      selector:
+        object:
+    payload:
+      required: true
+      example: "[1, 100, 0, 3]"
+      selector:
+        object:
+activate_scene:
+  fields:
+    address:
+      required: true
+      example: "[1, 74]"
+      selector:
+        object:
+    scene_address:
+      required: true
+      example: "[3, 5]"
+      selector:
+        object:
+set_universal_switch:
+  fields:
+    address:
+      required: true
+      example: "[1, 74]"
+      selector:
+        object:
+    switch_number:
+      required: true
+      example: 100
+      selector:
+        number:
+          min: 1
+          max: 255
+    status:
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 0
+          max: 1

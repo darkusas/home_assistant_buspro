@@ -20,6 +20,20 @@ class Generics:
         return list_of_integer
 
     @staticmethod
+    def operate_code_to_bytes(operate_code):
+        """Return a 2-byte operate code from an OperateCode, bytes, [hi, lo] list or int."""
+        if isinstance(operate_code, OperateCode):
+            operate_code = operate_code.value
+        if isinstance(operate_code, int):
+            if not 0 <= operate_code <= 0xFFFF:
+                raise ValueError(f"operate code out of range: {operate_code}")
+            return operate_code.to_bytes(2, "big")
+        operate_code = bytes(operate_code)
+        if len(operate_code) != 2:
+            raise ValueError(f"operate code must be 2 bytes, got {list(operate_code)}")
+        return operate_code
+
+    @staticmethod
     def enum_has_value(enum, value):
         return any(value == item.value for item in enum)
 

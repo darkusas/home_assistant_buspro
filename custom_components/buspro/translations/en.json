@@ -13,5 +13,115 @@
     "error": {
       "unknown": "An error occured."
     }
+  },
+  "issues": {
+    "udp_port_unavailable": {
+      "title": "HDL Buspro cannot open UDP port {port}",
+      "description": "Home Assistant could not open UDP port {port}, so nothing is sent to or received from the HDL bus. Usually another program uses the port: HDL Buspro Setup Tool on this computer, another integration or a second Home Assistant instance. Close it and restart Home Assistant. In Docker, run the container with host networking so that the gateway's broadcasts reach it."
+    }
+  },
+  "services": {
+    "scan": {
+      "name": "Scan HDL bus",
+      "description": "Find HDL Buspro devices, their channels and the names stored in them. Read-only: nothing is switched. Takes about a minute; call it with \"return response\" to see the result.",
+      "fields": {
+        "rounds": {
+          "name": "Search rounds",
+          "description": "How many times to repeat the device search. One round reaches about 87% of devices."
+        },
+        "interval": {
+          "name": "Round length",
+          "description": "Seconds per search round. Devices answer within about 5 seconds."
+        },
+        "read_names": {
+          "name": "Read channel names",
+          "description": "Read the name of every output and curtain channel."
+        },
+        "read_mac": {
+          "name": "Read MAC addresses",
+          "description": "Read each device's MAC address, which stays the same when its address changes."
+        }
+      }
+    },
+    "test_channel": {
+      "name": "Test HDL channel",
+      "description": "Switch a channel, curtain or universal switch directly on the bus and report what the device answered, to check it is the right one before adding it. This switches the real load. A pulse turns the channel on for a few seconds and then restores its previous level.",
+      "fields": {
+        "address": {
+          "name": "Device address",
+          "description": "Subnet ID and device ID, e.g. 1.89."
+        },
+        "channel": {
+          "name": "Channel",
+          "description": "Channel, curtain or universal switch number."
+        },
+        "target": {
+          "name": "Target",
+          "description": "What the number refers to."
+        },
+        "action": {
+          "name": "Action",
+          "description": "Outputs: on, off, level, pulse. Curtains: open, close, stop. Universal switches: on, off."
+        },
+        "level": {
+          "name": "Level",
+          "description": "Level for 'level', or for 'pulse' (default 100)."
+        },
+        "duration": {
+          "name": "Pulse length",
+          "description": "Seconds the channel stays on during a pulse."
+        }
+      }
+    },
+    "send_message": {
+      "name": "Send HDL telegram",
+      "description": "Send any telegram to a device on the bus. For advanced use: a wrong telegram can change the device.",
+      "fields": {
+        "address": {
+          "name": "Device address",
+          "description": "Subnet ID and device ID as a list, e.g. [1, 74]."
+        },
+        "operate_code": {
+          "name": "Operate code",
+          "description": "Operate code as two bytes, e.g. [4, 78] for 0x044E."
+        },
+        "payload": {
+          "name": "Payload",
+          "description": "Payload bytes, e.g. [1, 100, 0, 3]."
+        }
+      }
+    },
+    "activate_scene": {
+      "name": "Activate HDL scene",
+      "description": "Activate a scene stored in a device.",
+      "fields": {
+        "address": {
+          "name": "Device address",
+          "description": "Subnet ID and device ID as a list, e.g. [1, 74]."
+        },
+        "scene_address": {
+          "name": "Scene",
+          "description": "Area number and scene number, e.g. [3, 5]."
+        }
+      }
+    },
+    "set_universal_switch": {
+      "name": "Set HDL universal switch",
+      "description": "Turn a universal switch of a device on or off.",
+      "fields": {
+        "address": {
+          "name": "Device address",
+          "description": "Subnet ID and device ID as a list, e.g. [1, 74]."
+        },
+        "switch_number": {
+          "name": "Switch number",
+          "description": "Universal switch number, 1 to 255."
+        },
+        "status": {
+          "name": "Status",
+          "description": "1 turns it on, 0 turns it off."
+        }
+      }
+    }
   }
 }

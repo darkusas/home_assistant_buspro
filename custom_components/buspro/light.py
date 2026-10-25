@@ -18,8 +18,12 @@ from homeassistant.components.light import (
 from homeassistant.const import (CONF_NAME, CONF_DEVICES)
 from homeassistant.core import callback
 
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+
 from ..buspro import DATA_BUSPRO
 from .address_validation import validate_buspro_address_str
+from .const import SIGNAL_ENTITIES_ADDED
+from .storage import device_info
 from datetime import timedelta
 import homeassistant.helpers.event as event
 
@@ -127,13 +131,34 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         await device.async_read_status()
 
 
+async def async_setup_entry(hass, config_entry, async_add_entities):
+    """Set up lights added from the bus scan."""
+    # noinspection PyUnresolvedReferences
+    from .pybuspro.devices import Light
+
+    module = hass.data[DATA_BUSPRO]
+
+    @callback
+    def add(specs):
+        async_add_entities([
+            BusproLight(hass, Light(module.hdl, spec.device_address, spec.channel, spec.name),
+                        int(spec.options.get("running_time", DEFAULT_DEVICE_RUNNING_TIME)),
+                        bool(spec.options.get("dimmable", DEFAULT_DIMMABLE)), device_info(spec))
+            for spec in specs
+        ])
+
+    add(module.entity_store.for_platform("light"))
+    config_entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_ENTITIES_ADDED.format("light"), add))
+
+
 # noinspection PyAbstractClass
 class BusproLight(LightEntity):
     """Representation of a Buspro light."""
 
-    def __init__(self, hass, device, running_time, dimmable):
+    def __init__(self, hass, device, running_time, dimmable, device_info=None):
         self._hass = hass
         self._device = device
+        self._attr_device_info = device_info
         self._running_time = running_time
         self._dimmable = dimmable
         
@@ -149,7 +174,14 @@ class BusproLight(LightEntity):
         self.async_register_callbacks()
          # Set the polling interval (e.g., every 60 minutes)
         self._polling_interval = timedelta(minutes=60)
-        event.async_track_time_interval(hass, self.async_update, self._polling_interval)
+
+    async def async_added_to_hass(self):
+        """Start polling; the timer is cancelled when the entity is removed."""
+        self.async_on_remove(event.async_track_time_interval(self.hass, self.async_update, self._polling_interval))
+
+    async def async_will_remove_from_hass(self):
+        """Stop listening to the bus when the entity is removed."""
+        self._device.close()
 
 
     @callback

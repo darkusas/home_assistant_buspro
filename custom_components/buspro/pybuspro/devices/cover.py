@@ -4,10 +4,9 @@ from .control import _CoverControl, _ReadCoverStatus
 from .device import Device
 from ..helpers.enums import *
 from ..helpers.generics import Generics
-from homeassistant.const import (
-    STATE_CLOSING,
-    STATE_OPENING,
-)
+# Same values as homeassistant.const; kept local so pybuspro does not depend on Home Assistant.
+STATE_CLOSING = "closing"
+STATE_OPENING = "opening"
 import logging
 _LOGGER = logging.getLogger(__name__)
 

@@ -25,8 +25,12 @@ from homeassistant.const import (
 from homeassistant.core import callback
 
 from datetime import timedelta
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+
 from ..buspro import DATA_BUSPRO
 from .address_validation import validate_buspro_address_str
+from .const import SIGNAL_ENTITIES_ADDED
+from .storage import device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -197,13 +201,38 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     async_add_entities(devices)
 
 
+async def async_setup_entry(hass, config_entry, async_add_entities):
+    """Set up motion, dry contact and universal switch sensors added from the bus scan."""
+    # noinspection PyUnresolvedReferences
+    from .pybuspro.devices import Sensor
+
+    module = hass.data[DATA_BUSPRO]
+
+    def create(spec):
+        universal_switch_number = spec.channel if spec.kind == "universal_switch" else None
+        sensor = Sensor(module.hdl, spec.device_address, universal_switch_number=universal_switch_number,
+                        device=spec.options.get("device", ""), name=spec.name)
+        return BusproBinarySensor(hass, sensor, spec.kind, spec.options.get("device_class"), 0,
+                                  device_info=device_info(spec), unique_id=spec.unique_id)
+
+    @callback
+    def add(specs):
+        async_add_entities([create(spec) for spec in specs])
+
+    add(module.entity_store.for_platform("binary_sensor"))
+    config_entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_ENTITIES_ADDED.format("binary_sensor"), add))
+
+
 # noinspection PyAbstractClass
 class BusproBinarySensor(BinarySensorEntity):
     """Representation of a Buspro switch."""
 
-    def __init__(self, hass, device, sensor_type, device_class, scan_interval, icon=None, is_virtual=False):
+    def __init__(self, hass, device, sensor_type, device_class, scan_interval, icon=None, is_virtual=False,
+                 device_info=None, unique_id=None):
         self._hass = hass
         self._device = device
+        self._attr_device_info = device_info
+        self._unique_id = unique_id
         self._device_class = device_class
         self._icon = icon
         self._is_virtual = is_virtual
@@ -225,6 +254,10 @@ class BusproBinarySensor(BinarySensorEntity):
             self.async_write_ha_state()
 
         self._device.register_device_updated_cb(after_update_callback)
+
+    async def async_will_remove_from_hass(self):
+        """Stop listening to the bus when the entity is removed."""
+        self._device.close()
 
     @property
     def should_poll(self):
@@ -260,7 +293,7 @@ class BusproBinarySensor(BinarySensorEntity):
     @property
     def unique_id(self):
         """Return the unique id."""
-        return self._device.device_identifier
+        return self._unique_id or self._device.device_identifier
 
     @property
     def is_on(self):

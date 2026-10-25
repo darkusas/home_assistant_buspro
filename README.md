@@ -13,6 +13,39 @@ Restart Home Assistant.
 
 Go to Settings > Integrations and Add Integration "HDL Buspro". Type in IP address and port number of the gateway.
 
+## Adding devices from a bus scan (HDL Buspro panel)
+
+With the integration added under Settings > Integrations, administrators get an **HDL Buspro** item in the sidebar:
+
+1. **Scan bus** finds the HDL devices and reads the names stored in them (device and channel remarks). The scan is read-only and takes about a minute.
+2. Select a device to see its channels with their names and live state.
+3. Test a channel with **ON**, **OFF** or **Pulse** (on for 2 seconds, then back to its previous state); dimmers also have a slider. The result shows what the device answered. This switches the real load.
+4. Tick the channels you want, adjust their names and choose switch, light (on/off) or light (dimmable), then press **Add selected**. The entities appear right away, grouped under one device per HDL device, without editing YAML or restarting.
+
+What can be added:
+
+| From | As |
+|---|---|
+| Relay, dimmer and DMX channels | `switch`, `light` (on/off or dimmable) |
+| Curtain modules (tested with ▲ ■ ▼) | `cover`, with its opening time |
+| Sensors and wall panels: temperature, illuminance | `sensor` |
+| Sensors: motion, dry contact 1 and 2 | `binary_sensor` |
+| Universal switches (enter the number, e.g. of a logic module; tested with ON/OFF) | `switch` or `binary_sensor` |
+| Floor heating of DLP panels | `climate` (on/off, temperature, normal/day/night/away/timer) |
+
+Reading the DLP floor heating is confirmed with captures of real installations; controlling it follows the HDL operation code list and has not yet been tried on real hardware. Floor heating modules, multi-channel temperature modules and dry contact input modules are listed but cannot be added yet.
+
+Channels already configured in YAML are marked and cannot be added a second time. Added entities are stored in `.storage/buspro.entities` and can be removed from the panel.
+
+A device the scan cannot recognise is listed as *Unknown* with its type code (see *All devices*). Under **Change type** you can say what it is (output module with relay or dimmer channels and their number, curtain module, sensor, panel, logic module or gateway); this applies to every device with the same type code, is kept in `.storage/buspro.type_overrides` and can be undone with **Back to automatic**. Please report such type codes in an issue, with the diagnostics attached, so they are recognised for everyone.
+
+### Troubleshooting
+
+- **Repairs shows "HDL Buspro cannot open UDP port 6000"**: another program already uses the port, often HDL Buspro Setup Tool on the same computer, another integration or a second Home Assistant instance. Close it and restart Home Assistant.
+- **The scan finds nothing**: Home Assistant has to receive the gateway's broadcasts. In Docker run the container with host networking (`network_mode: host`); in a virtual machine use a bridged network adapter, not NAT. The gateway and Home Assistant have to be in the same subnet.
+- **Some devices are missing**: a busy bus drops answers; choose *Thorough (6 rounds)*.
+- **Diagnostics** (Settings > Devices & services > HDL Buspro > ⋮ > Download diagnostics) contain the last scan, unknown type codes, types set by hand and the entities added from the panel, with MAC addresses and the gateway address removed.
+
 ## Configuration
 
 #### Light platform
@@ -241,6 +274,22 @@ Domain: buspro
 Service: activate_scene
 Service Data: {"address": [1,74], "scene_address": [3,5]}
 ```
+#### Scanning the bus:
+```
+Domain: buspro
+Service: scan
+Service Data: {"rounds": 4, "interval": 10}
+```
+Finds HDL devices, their channels and the names stored in them (read-only, takes about a minute). Call it with "return response" in Developer tools to see the result; the last result is also included in the integration's diagnostics. The same scan can be run without Home Assistant from any PC in the gateway's network: `python tools/hdl_probe.py --gateway <ip> scan`.
+
+#### Testing a channel before adding it:
+```
+Domain: buspro
+Service: test_channel
+Service Data: {"address": "1.89", "channel": 3, "action": "pulse", "duration": 2}
+```
+Switches a channel directly on the bus and returns what the device answered (`confirmed`, `value`, `confirmed_by`, `latency`). Actions: `on`, `off`, `level` (with `level`), `pulse` (on for `duration` seconds, then back to the previous level); with `"target": "curtain"`: `open`, `close`, `stop`; with `"target": "universal_switch"`: `on`, `off`. This switches the real load. Only administrators can call `scan` and `test_channel`. Pulses still running when Home Assistant stops are restored first.
+
 #### Setting an universal switch:
 ```
 Domain: buspro
@@ -301,3 +350,12 @@ This shows Fan seperately on Google Home and HA, so they are not confused with l
 # Light:
 non dimmable lights were reporting as dimmable to HA, fixed this bug
 Fixed current status getting updated on HA  
+
+## Development
+
+```
+pip install -r requirements_test.txt && pytest                          # pybuspro library, no Home Assistant needed
+pip install -r requirements_test_ha.txt && pytest tests_ha              # Home Assistant integration
+node tests_frontend/panel_test.cjs [screenshot directory]               # panel in Chromium (Playwright)
+```
+`tools/hdl_probe.py` talks to a real gateway without Home Assistant (scan, read names, test channels).

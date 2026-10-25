@@ -77,9 +77,11 @@ class TelegramHelper:
 
             telegram = Telegram()
             telegram.source_device_type = generics.get_enum_value(DeviceType, source_device_type_hex)
+            telegram.source_device_type_raw = bytes(source_device_type_hex)
             telegram.udp_data = data
             telegram.source_address = (source_subnet_id, source_device_id)
             telegram.operate_code = generics.get_enum_value(OperateCode, operate_code_hex)
+            telegram.operate_code_raw = bytes(operate_code_hex)
             telegram.target_address = (target_subnet_id, target_device_id)
             telegram.udp_address = address
             telegram.payload = generics.hex_to_integer_list(content)
@@ -135,8 +137,13 @@ class TelegramHelper:
         send_buf.append(sender_subnet_id)
         send_buf.append(sender_device_id)
 
+        source_device_type_hex = None
         if telegram.source_device_type is not None:
             source_device_type_hex = telegram.source_device_type.value
+        elif telegram.source_device_type_raw is not None:
+            source_device_type_hex = bytes(telegram.source_device_type_raw)
+
+        if source_device_type_hex is not None:
             send_buf.append(source_device_type_hex[0])
             send_buf.append(source_device_type_hex[1])
         else:
@@ -151,7 +158,9 @@ class TelegramHelper:
         #    send_buf.append(0)
         #    # send_buf.append(b'\x00\x00')
 
-        operate_code_hex = telegram.operate_code.value
+        # Accept enum members as well as raw codes (e.g. [4, 78] from the send_message service).
+        operate_code = telegram.operate_code if telegram.operate_code is not None else telegram.operate_code_raw
+        operate_code_hex = Generics.operate_code_to_bytes(operate_code)
         send_buf.append(operate_code_hex[0])
         send_buf.append(operate_code_hex[1])
 

@@ -95,6 +95,8 @@ class OperateCode(Enum):
     BroadcastSensorStatusAutoResponse = b'\x16\x47'
 
     BroadcastTemperatureResponse = b'\xE3\xE5'
+    ReadTemperature = b'\xE3\xE7'
+    ReadTemperatureResponse = b'\xE3\xE8'
 
     ReadFloorHeatingStatus = b'\x19\x44'
     ReadFloorHeatingStatusResponse = b'\x19\x45'
@@ -113,6 +115,16 @@ class OperateCode(Enum):
     ReadPanelACResponse = b'\xE3\xDB'
 
     BroadcastIlluminance = b'\xE4\x41'  # reversu atrasta reikšmė
+
+    # Device identification. Defined before the QUERY_* names below so these
+    # are the canonical names for 0x000E/0x000F (the QUERY_* ones become aliases).
+    ReadDeviceRemark = b'\x00\x0E'
+    ReadDeviceRemarkResponse = b'\x00\x0F'
+    ReadDeviceModule = b'\xE5\x48'
+    ReadDeviceModuleResponse = b'\xE5\x49'
+    # Confirmed from HDL Buspro Setup Tool 2 captures (docs/protocol-captures/2026-10-25-analysis.md).
+    ReadChannelRemark = b'\xF0\x0E'
+    ReadChannelRemarkResponse = b'\xF0\x0F'
 
     """
     # 

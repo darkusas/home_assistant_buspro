@@ -1,0 +1,127 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Buspro šliuzo nustatymai",
+        "description": "Įveskite šliuzo IP adresą ir prievado numerį.",
+        "data": {
+          "host": "IP adresas",
+          "port": "Prievadas"
+        }
+      }
+    },
+    "error": {
+      "unknown": "Įvyko klaida."
+    }
+  },
+  "issues": {
+    "udp_port_unavailable": {
+      "title": "HDL Buspro negali atidaryti UDP prievado {port}",
+      "description": "Home Assistant nepavyko atidaryti UDP prievado {port}, todėl į HDL magistralę niekas nesiunčiama ir iš jos negaunama. Dažniausiai prievadą užima kita programa: HDL Buspro Setup Tool šiame kompiuteryje, kita integracija ar antras Home Assistant. Uždarykite ją ir paleiskite Home Assistant iš naujo. Docker'yje paleiskite konteinerį su host tinklu, kad šliuzo transliacijos jį pasiektų."
+    }
+  },
+  "services": {
+    "scan": {
+      "name": "Skanuoti HDL magistralę",
+      "description": "Suranda HDL Buspro įrenginius, jų kanalus ir juose įrašytus pavadinimus. Tik skaitoma: niekas neperjungiama. Trunka apie minutę; kvieskite su „return response“, kad pamatytumėte rezultatą.",
+      "fields": {
+        "rounds": {
+          "name": "Paieškos raundai",
+          "description": "Kiek kartų kartoti įrenginių paiešką. Vienas raundas pasiekia apie 87 % įrenginių."
+        },
+        "interval": {
+          "name": "Raundo trukmė",
+          "description": "Sekundės vienam raundui. Įrenginiai atsako per maždaug 5 s."
+        },
+        "read_names": {
+          "name": "Skaityti kanalų pavadinimus",
+          "description": "Nuskaityti kiekvieno išėjimo ir užuolaidos kanalo pavadinimą."
+        },
+        "read_mac": {
+          "name": "Skaityti MAC adresus",
+          "description": "Nuskaityti kiekvieno įrenginio MAC adresą, kuris nesikeičia pakeitus įrenginio adresą."
+        }
+      }
+    },
+    "test_channel": {
+      "name": "Išbandyti HDL kanalą",
+      "description": "Perjungia kanalą, užuolaidą ar universalų jungiklį tiesiogiai magistralėje ir praneša, ką atsakė įrenginys, kad prieš pridedant įsitikintumėte, jog tai tas, kurio reikia. Perjungiama tikra apkrova. Impulsas kelioms sekundėms įjungia kanalą ir grąžina ankstesnę būseną.",
+      "fields": {
+        "address": {
+          "name": "Įrenginio adresas",
+          "description": "Potinklio ir įrenginio ID, pvz. 1.89."
+        },
+        "channel": {
+          "name": "Kanalas",
+          "description": "Kanalo, užuolaidos ar universalaus jungiklio numeris."
+        },
+        "target": {
+          "name": "Kas bandoma",
+          "description": "Kam priklauso numeris."
+        },
+        "action": {
+          "name": "Veiksmas",
+          "description": "Išėjimai: on, off, level, pulse. Užuolaidos: open, close, stop. Universalūs jungikliai: on, off."
+        },
+        "level": {
+          "name": "Lygis",
+          "description": "Lygis veiksmui „level“ arba „pulse“ (numatytas 100)."
+        },
+        "duration": {
+          "name": "Impulso trukmė",
+          "description": "Kiek sekundžių kanalas įjungtas impulso metu."
+        }
+      }
+    },
+    "send_message": {
+      "name": "Siųsti HDL telegramą",
+      "description": "Siunčia bet kokią telegramą įrenginiui. Pažengusiems: neteisinga telegrama gali pakeisti įrenginio nustatymus.",
+      "fields": {
+        "address": {
+          "name": "Įrenginio adresas",
+          "description": "Potinklio ir įrenginio ID sąrašu, pvz. [1, 74]."
+        },
+        "operate_code": {
+          "name": "Operacijos kodas",
+          "description": "Operacijos kodas dviem baitais, pvz. [4, 78] kodui 0x044E."
+        },
+        "payload": {
+          "name": "Duomenys",
+          "description": "Duomenų baitai, pvz. [1, 100, 0, 3]."
+        }
+      }
+    },
+    "activate_scene": {
+      "name": "Įjungti HDL sceną",
+      "description": "Įjungia įrenginyje įrašytą sceną.",
+      "fields": {
+        "address": {
+          "name": "Įrenginio adresas",
+          "description": "Potinklio ir įrenginio ID sąrašu, pvz. [1, 74]."
+        },
+        "scene_address": {
+          "name": "Scena",
+          "description": "Zonos ir scenos numeris, pvz. [3, 5]."
+        }
+      }
+    },
+    "set_universal_switch": {
+      "name": "Nustatyti HDL universalų jungiklį",
+      "description": "Įjungia arba išjungia įrenginio universalų jungiklį.",
+      "fields": {
+        "address": {
+          "name": "Įrenginio adresas",
+          "description": "Potinklio ir įrenginio ID sąrašu, pvz. [1, 74]."
+        },
+        "switch_number": {
+          "name": "Jungiklio numeris",
+          "description": "Universalaus jungiklio numeris nuo 1 iki 255."
+        },
+        "status": {
+          "name": "Būsena",
+          "description": "1 įjungia, 0 išjungia."
+        }
+      }
+    }
+  }
+}

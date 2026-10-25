@@ -24,10 +24,15 @@ from homeassistant.const import (
     ATTR_TEMPERATURE,
 )
 #from homeassistant.const import UnitOfTemperature.CELSIUS
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 # from homeassistant.helpers.entity import Entity
 from ..buspro import DATA_BUSPRO
+from .const import SIGNAL_ENTITIES_ADDED
+from .storage import device_info
 # noinspection PyUnresolvedReferences
 from .pybuspro.devices.climate import ControlPanelAC
 # noinspection PyUnresolvedReferences
@@ -332,3 +337,103 @@ class BusproClimate(ClimateEntity):
         """Read the status of the device."""
         await self._device.read_temperature()
         self.async_write_ha_state()
+
+
+async def async_setup_entry(hass, config_entry, async_add_entities):
+    """Set up DLP floor heating added from the bus scan."""
+    # noinspection PyUnresolvedReferences
+    from .pybuspro.devices import FloorHeating
+
+    module = hass.data[DATA_BUSPRO]
+
+    @callback
+    def add(specs):
+        async_add_entities([
+            BusproFloorHeating(FloorHeating(module.hdl, spec.device_address, spec.name), device_info(spec))
+            for spec in specs
+        ])
+
+    add(module.entity_store.for_platform("climate"))
+    config_entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_ENTITIES_ADDED.format("climate"), add))
+
+
+# HDL floor heating modes (TemperatureMode) as Home Assistant presets.
+FLOOR_HEATING_PRESETS = {"normal": 1, "day": 2, "night": 3, "away": 4, "timer": 5}
+FLOOR_HEATING_POLL_INTERVAL = timedelta(minutes=1)  # DLP panels do not broadcast the room temperature
+
+
+# noinspection PyAbstractClass
+class BusproFloorHeating(ClimateEntity):
+    """Floor heating controlled by a DLP panel."""
+
+    _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
+    _attr_preset_modes = list(FLOOR_HEATING_PRESETS)
+    _attr_supported_features = (ClimateEntityFeature.TARGET_TEMPERATURE | ClimateEntityFeature.PRESET_MODE
+                                | ClimateEntityFeature.TURN_ON | ClimateEntityFeature.TURN_OFF)
+    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_target_temperature_step = 1
+    _attr_min_temp = 5
+    _attr_max_temp = 35
+    _attr_should_poll = False
+
+    def __init__(self, device, device_info=None):
+        self._device = device
+        self._attr_device_info = device_info
+        self._attr_name = device.name
+        self._attr_unique_id = device.device_identifier
+
+    async def async_added_to_hass(self):
+        async def updated(_device):
+            self.async_write_ha_state()
+
+        self._device.register_device_updated_cb(updated)
+        self.async_on_remove(event.async_track_time_interval(self.hass, self._async_poll, FLOOR_HEATING_POLL_INTERVAL))
+        await self._device.read_status()
+
+    async def async_will_remove_from_hass(self):
+        self._device.close()
+
+    async def _async_poll(self, _now=None):
+        await self._device.read_status()
+
+    @property
+    def available(self):
+        return self.hass.data[DATA_BUSPRO].connected and self._device.known
+
+    @property
+    def hvac_mode(self):
+        return HVACMode.HEAT if self._device.is_on else HVACMode.OFF
+
+    @property
+    def current_temperature(self):
+        return self._device.current_temperature
+
+    @property
+    def target_temperature(self):
+        return self._device.target_temperature
+
+    @property
+    def preset_mode(self):
+        return next((name for name, mode in FLOOR_HEATING_PRESETS.items() if mode == self._device.mode), None)
+
+    async def _set(self, **changes):
+        try:
+            await self._device.set(**changes)
+        except ValueError as err:
+            raise HomeAssistantError(str(err)) from err
+
+    async def async_set_hvac_mode(self, hvac_mode):
+        await self._set(on=hvac_mode == HVACMode.HEAT)
+
+    async def async_turn_on(self):
+        await self._set(on=True)
+
+    async def async_turn_off(self):
+        await self._set(on=False)
+
+    async def async_set_temperature(self, **kwargs):
+        if ATTR_TEMPERATURE in kwargs:
+            await self._set(temperature=kwargs[ATTR_TEMPERATURE])
+
+    async def async_set_preset_mode(self, preset_mode):
+        await self._set(mode=FLOOR_HEATING_PRESETS[preset_mode])

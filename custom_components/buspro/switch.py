@@ -12,8 +12,11 @@ import voluptuous as vol
 from homeassistant.components.switch import SwitchEntity, PLATFORM_SCHEMA
 from homeassistant.const import (CONF_NAME, CONF_DEVICES)
 from homeassistant.core import callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from ..buspro import DATA_BUSPRO
+from .const import SIGNAL_ENTITIES_ADDED
+from .storage import device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -80,13 +83,36 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     async_add_entities(devices)
 
 
+async def async_setup_entry(hass, config_entry, async_add_entities):
+    """Set up switches added from the bus scan."""
+    # noinspection PyUnresolvedReferences
+    from .pybuspro.devices import Switch, UniversalSwitch
+
+    module = hass.data[DATA_BUSPRO]
+
+    def create(spec):
+        if spec.kind == "universal_switch":
+            device = UniversalSwitch(module.hdl, spec.device_address, spec.channel, spec.name)
+            return BusproSwitch(hass, device, device_info(spec), unique_id=spec.unique_id)
+        return BusproSwitch(hass, Switch(module.hdl, spec.device_address, spec.channel, spec.name), device_info(spec))
+
+    @callback
+    def add(specs):
+        async_add_entities([create(spec) for spec in specs])
+
+    add(module.entity_store.for_platform("switch"))
+    config_entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_ENTITIES_ADDED.format("switch"), add))
+
+
 # noinspection PyAbstractClass
 class BusproSwitch(SwitchEntity):
     """Representation of a Buspro switch."""
 
-    def __init__(self, hass, device):
+    def __init__(self, hass, device, device_info=None, unique_id=None):
         self._hass = hass
         self._device = device
+        self._attr_device_info = device_info
+        self._unique_id = unique_id
         self.async_register_callbacks()
 
     @callback
@@ -99,6 +125,10 @@ class BusproSwitch(SwitchEntity):
             self.async_write_ha_state()
 
         self._device.register_device_updated_cb(after_update_callback)
+
+    async def async_will_remove_from_hass(self):
+        """Stop listening to the bus when the entity is removed."""
+        self._device.close()
 
     @property
     def should_poll(self):
@@ -131,4 +161,4 @@ class BusproSwitch(SwitchEntity):
     @property
     def unique_id(self):
         """Return the unique id."""
-        return self._device.device_identifier
+        return self._unique_id or self._device.device_identifier

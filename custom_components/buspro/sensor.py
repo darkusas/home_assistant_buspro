@@ -25,8 +25,12 @@ from homeassistant.const import (
 from homeassistant.core import callback
 from homeassistant.helpers.entity import Entity
 
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+
 from ..buspro import DATA_BUSPRO
 from .address_validation import validate_buspro_address_str
+from .const import SIGNAL_ENTITIES_ADDED
+from .storage import device_info
 
 DEFAULT_CONF_UNIT_OF_MEASUREMENT = ""
 DEFAULT_CONF_DEVICE_CLASS = "None"
@@ -98,13 +102,33 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     #    await device.async_read_status()
     async_add_entities(devices)
 
+async def async_setup_entry(hass, config_entry, async_add_entities):
+    """Set up temperature and illuminance sensors added from the bus scan."""
+    # noinspection PyUnresolvedReferences
+    from .pybuspro.devices import Sensor
+
+    module = hass.data[DATA_BUSPRO]
+
+    @callback
+    def add(specs):
+        async_add_entities([
+            BusproSensor(hass, Sensor(module.hdl, spec.device_address, device=spec.options.get("device", ""),
+                                      name=spec.name), spec.kind, 0, DEFAULT_CONF_OFFSET, device_info(spec))
+            for spec in specs
+        ])
+
+    add(module.entity_store.for_platform("sensor"))
+    config_entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_ENTITIES_ADDED.format("sensor"), add))
+
+
 # noinspection PyAbstractClass
 class BusproSensor(Entity):
     """Representation of a Buspro switch."""
 
-    def __init__(self, hass, device, sensor_type, scan_interval, offset):
+    def __init__(self, hass, device, sensor_type, scan_interval, offset, device_info=None):
         #self._hass = hass
         self._device = device
+        self._attr_device_info = device_info
         self._sensor_type = sensor_type
         #self.async_register_callbacks()
         self._after_update_callback = None        
@@ -148,6 +172,7 @@ class BusproSensor(Entity):
         if self._after_update_callback is not None:
             self._device.unregister_device_updated_cb(self._after_update_callback)
             self._after_update_callback = None
+        self._device.close()
 
 
     @property
