@@ -1,9 +1,9 @@
 """Decode HDL "remarks": the device and channel names stored by HDL Buspro Setup Tool.
 
-A remark is a fixed 20-byte text field padded with 0x00 (or 0xFF in unprogrammed
-flash). The tool writes it in the PC's ANSI code page, so the encoding is not fixed;
-cp1257 is the Baltic one (ąčęėįšųūž), gbk covers installers using Chinese Windows.
-The encoding order still has to be confirmed on real devices (docs/device-scan-plan.md, stage 0).
+A remark is a fixed 20-byte text field padded with 0x00, or 0xFF when it was never set.
+The tool writes it in the PC's ANSI code page, so the encoding is not fixed. Captures from
+two Lithuanian installations decode correctly as cp1257 and never as valid utf-8; gbk
+covers installers using Chinese Windows (docs/protocol-captures/2026-10-25-analysis.md).
 """
 
 REMARK_LENGTH = 20
@@ -36,8 +36,8 @@ def parse_device_remark(payload, encodings=DEFAULT_ENCODINGS):
 def parse_channel_remark(payload, encodings=DEFAULT_ENCODINGS):
     """Decode a ReadChannelRemarkResponse (0xF00F) payload: [channel, remark (20 bytes)].
 
-    Returns (channel, remark) or None if the payload is too short. Layout taken from a
-    third-party relay emulator and not yet verified on HDL hardware.
+    Returns (channel, remark) or None if the payload is too short. Unnamed channels
+    are all 0xFF and give (channel, None).
     """
     if len(payload) < 2:
         return None

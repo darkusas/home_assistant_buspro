@@ -6,6 +6,10 @@ triples (big, small, count), e.g. (1, 1, 8) = 8 relay channels.
 
 Request payload: [session_1, session_2, subnet_1, device_1, subnet_2, device_2, ...]
 Reply payload:   [session_1, session_2, remark (20 bytes), big, small, count, ...]
+
+Panels report what they can control (e.g. (1, 12, 64) on a touch panel), not physical
+outputs; only devices that answer ReadStatusOfChannels have real channels. Older devices
+(DLP panels, logic modules, IP modules, some sensors) do not answer 0xE548 at all.
 """
 
 from dataclasses import dataclass, field

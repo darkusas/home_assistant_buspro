@@ -197,7 +197,7 @@ def build_parser():
     commands.add_parser("listen", help="print all bus traffic").add_argument("--seconds", type=float, default=30)
     commands.add_parser("remark", help="read device name (0x000E)").add_argument("address")
     commands.add_parser("channels", help="read channel count and levels (0x0033)").add_argument("address")
-    channel_remarks = commands.add_parser("channel-remarks", help="read channel names (0xF00E, unverified)")
+    channel_remarks = commands.add_parser("channel-remarks", help="read channel names (0xF00E)")
     channel_remarks.add_argument("address")
     channel_remarks.add_argument("--count", type=int, help="number of channels (default: read with 0x0033)")
     module = commands.add_parser("module", help="read device module description (0xE548)")

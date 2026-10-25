@@ -1,6 +1,6 @@
 # HDL Buspro įrenginių skanavimo ir pridėjimo įrankis — įgyvendinimo planas
 
-Būsena (2026-10-25): **etapas 1 (bibliotekos pamatai) įgyvendintas**; etapo 0 įrankiai (`tools/hdl_probe.py`, `docs/protocol-captures/README.md`) paruošti ir laukia matavimų su tikra įranga.
+Būsena (2026-10-25): **etapas 1 (bibliotekos pamatai) įgyvendintas**; **etapas 0 atliktas** pagal du Setup Tool 2 Wireshark įrašus — rezultatai `docs/protocol-captures/2026-10-25-analysis.md` (jie turi pirmenybę prieš 2 skyriaus spėjimus).
 
 ## 1. Tikslas
 
@@ -32,7 +32,7 @@ Kuo mūsų įrankis turi skirtis (ko iš aprašymo nematyti): **kanalų pavadini
 
 | Funkcija | Opkodas (užklausa → atsakymas) | Payload | Patikimumas |
 |---|---|---|---|
-| Vieno kanalo valdymas | `0x0031` → `0x0032` | užklausa: `[kanalas, lygis, min, sek]`; atsakymas (**broadcast**): `[kanalas, 0xF8=OK/0xF5=klaida, lygis, kanalų_sk, lygiai…]` | oficialus PDF + smart-bus |
+| Vieno kanalo valdymas | `0x0031` → `0x0032` | užklausa: `[kanalas, lygis, min, sek]`; atsakymas (**broadcast**): `[kanalas, 0xF8=OK/0xF5=klaida, lygis, kanalų_sk, bitų kaukė ⌈n/8⌉ B]` | oficialus PDF; **kaukė patvirtinta įrašais** (PDF rašo „lygiai") |
 | Visų kanalų būsena | `0x0033` → `0x0034` | atsakymas: `[kanalų_sk, lygis_1 … lygis_N]` | oficialus PDF |
 | Realus kanalo lygis | `0x0038` → `0x0039` | kaip `0x0034` | oficialus PDF |
 | Universal switch | `0xE01C` (valdymas, ON=`0xFF`) → `0xE01D`; `0xE018 [n]` → `0xE019 [n, 1/0]`; `0xE017` broadcast `[būsenos…]` | | oficialus PDF |
@@ -43,7 +43,7 @@ Kuo mūsų įrankis turi skirtis (ko iš aprašymo nematyti): **kanalų pavadini
 | Sausas kontaktas | `0x15CE [1, n]` → `0x15CF [?, n, būsena]` | | smart-bus + ar_hdl_buspro |
 | Judesio jutiklis | `0xDB00` → `0xDB01` | | PDF + smart-bus |
 | Temperatūra | `0xE3E7 [kanalas]` → `0xE3E8`; broadcast `0xE3E5` | | PDF + smart-bus |
-| **Įrenginio pavadinimas (remark)** | `0x000E []` → `0x000F` (payload = remark baitai) | | **veikiantis kodas** (ar_hdl_buspro siunčia broadcast ir directed); formato detalės — žr. žemiau |
+| **Įrenginio pavadinimas (remark)** | `0x000E []` → `0x000F` (payload = remark baitai) | | **patvirtinta įrašais** (Setup Tool paieška = broadcast `0x000E`) |
 | **Modulio savaiminis aprašas** | `0xE548 [r1, r2, (subnet,dev)×≤32]` → `0xE549` | atsakymas: `[echo 2B][remark 20B][(big,small,count)×N]` | **veikiantis kodas** (HDL Setup Tool 2 mechanizmas) |
 
 **`0xE549` funkcijų trejetai `(big, small, count)`** — įrenginys pats pasako, kas jame yra, todėl **nereikia didelio modelių katalogo**:
@@ -58,12 +58,11 @@ Kuo mūsų įrankis turi skirtis (ko iš aprašymo nematyti): **kanalų pavadini
 | 8 | grindų šildymas |
 | 0 | ne funkcija (bazinio skydelio adresas) — praleisti |
 
-### 2.3 Kanalų pavadinimai (`0xF00E`) — **dar nepatvirtinta**
+### 2.3 Kanalų pavadinimai (`0xF00E`) — **patvirtinta įrašais**
 
-- Opkodai `ReadChannelRemark = 0xF00E` / `…Response = 0xF00F` yra jau **šio repo** `enums.py` komentaruose (originalaus autoriaus sąrašas iš HDL dokumento).
-- Payload formatą liudija tik trečiųjų šalių rėlės emuliatorius (Pooria-nek, GPL): **užklausa `[kanalas]` (1 B), atsakymas 21 B = `[kanalas][20 B remark]`**; device remark taip pat 20 B.
-- **Nei vienas rastas šaltinis neturi šių verčių oficialiame dokumente, o ar_hdl_buspro kanalų pavadinimų neskaito.** Todėl **0 etapas (žr. 8 skyrių) yra privalomas** — tikrinama su tikra įranga prieš rašant likusį kodą.
-- Remark koduotė: ar_hdl_buspro palieka tik ASCII 32–126 (tai sugadintų `ąčęėįšųūž`). Mūsų dekodavimo eilė: `utf-8` → `cp1257` (Baltijos) → `gbk` → `latin-1`; pavadinimą visada galima pataisyti UI.
+- `0xF00E [kanalas]` → `0xF00F [kanalas][20 B]`; nepavadintas kanalas = `0xFF`×20. Setup Tool kiekvieną užklausą siunčia 3 kartus; atsakymas ~60–80 ms.
+- Koduotė — **cp1257** (22 lietuviški pavadinimai, visi teisingi). Dekodavimo eilė `utf-8` → `cp1257` → `gbk` → `latin-1` tinka: nė vienas cp1257 pavadinimas nėra validus UTF-8. (ar_hdl_buspro palieka tik ASCII — tai sugadintų `ąčęėįšųūž`.)
+- Paieškos laikai: po broadcast `0x000E` atsakymai ateina per ~5 s, bet vienas raundas randa ~87 % įrenginių → reikia 4–5 raundų.
 
 ### 2.4 Kiti praktiniai dalykai
 
@@ -71,7 +70,7 @@ Kuo mūsų įrankis turi skirtis (ko iš aprašymo nematyti): **kanalų pavadini
 - **Dauguma rėlių/dimerių modulių ignoruoja *broadcast* `0x0033`** ir atsako tik į siųstą jiems tiesiogiai → po broadcast fazės būtina **directed** užklausa kiekvienam rastam įrenginiui.
 - Tipo kodas `0x0086` reiškia skirtingus gaminius HDL ir Smart-Bus → nepasikliauti vien kodu, bet įrenginio atsakymu.
 - Šliuzai (`0x1209`, `0x120B`, `0x02F5`) ir logikos moduliai (`0x0455`, `0x0457`) neturi būti siūlomi kaip entity.
-- Nenaudotinas (nepatvirtintas) spėjimas: `0xF003`/`0xE5F5` (MAC/„detect address") — jokiame šaltinyje nepatvirtinta, į planą neįtraukta.
+- `0xF003` → `0xF004` — MAC skaitymas (8 B), **patvirtinta įrašais**: Setup Tool jį skaito kiekvienam rastam įrenginiui. Tinka pastoviam HA įrenginio ID (adresą galima pakeisti, MAC — ne). `0xE5F5` įrašuose nematytas.
 
 ## 3. Dabartinė repo būklė (kas padeda, kas trukdo)
 
@@ -94,7 +93,7 @@ Kuo mūsų įrankis turi skirtis (ko iš aprašymo nematyti): **kanalų pavadini
 
 Skanavimas yra **fono užduotis** su progreso įvykiais (ne blokuojanti forma). Klausytojas (`add_telegram_listener`) renka **visą** srautą, o aktyvios užklausos tik „išprovokuoja" atsakymus.
 
-**A fazė — pasyvus klausymas + broadcast „provokacijos"** (trukmė pasirenkama 15 / 30 / 60 s; kas 2,5 s, tarp kadrų 50 ms), siunčiama į `255.255`:
+**A fazė — pasyvus klausymas + broadcast „provokacijos"** (trukmė pasirenkama 30 / 60 / 90 s — trumpiau nerekomenduojama: vienas `0x000E` raundas randa tik ~87 % įrenginių, atsakymai ateina per ~5 s, todėl `0x000E` kartoti ≥4 kartus kas ~10 s; kitos provokacijos kas 2,5 s, tarp kadrų 50 ms), siunčiama į `255.255`:
 `0x0033 []`, `0x1645 []`, `0x1604 []`, `0x1944 []`, `0x15CE [1,1]`, `0xE018 [1]`, `0xE3E2 [1]` ir `[2]`, `0xDB00 []`, `0xE3E7 [1]`, `0x000E []`.
 Kiekvienas gautas telegrama sukuria/papildo `ScannedDevice` pagal šaltinio adresą ir tipo kodą (baitai 19–20 UDP pakete).
 
@@ -197,7 +196,7 @@ Dydžiai: **S** ≈ pusdienis, **M** ≈ 1–2 d., **L** ≈ 3+ d. (apytiksliai,
 ## 10. Rizikos, atviri klausimai
 
 **Rizikos**
-1. `0xF00E/0xF00F` vertės ir formatas nepatvirtinti — jei neveiks, išliks fallback `Kanalas N` + rankinis pavadinimas (planas nesugriūva, bet funkcija „pavadinimai iš įrenginio" nukenka). → 0 etapas.
+1. ~~`0xF00E/0xF00F` vertės ir formatas nepatvirtinti~~ — patvirtinta etape 0. Lieka: 8 įrenginių tipai neatsako į `0xE548` (DLP panelės, logikos/IP moduliai, kai kurie jutikliai) → klasifikuoti pagal `0x0033` atsakymą ir pasyvius broadcast'us.
 2. Šliuzas gali neperduoti broadcast į magistralę arba UDP broadcast atsakymų negauna HA konteineris (Docker be `host` tinklo, VLAN) → fallback: directed „šluota" per nurodytus subnet'us (rate-limited) ir pasyvus klausymas.
 3. Magistralės apkrova (9600 baud): siuntimo eilė su 50 ms tarpu, fazių ribos, išskyrimo sąrašas.
 4. Realus apkrovos perjungimas testo metu → impulsas + įspėjimas + admin.
@@ -222,7 +221,7 @@ Dydžiai: **S** ≈ pusdienis, **M** ≈ 1–2 d., **L** ≈ 3+ d. (apytiksliai,
 ## 11. Failų pokyčiai (santrauka)
 
 **Biblioteka `custom_components/buspro/pybuspro/`**
-- `helpers/enums.py` — nauji `OperateCode`: `0x000E/F`, `0xF00E/F` (pažymėti „nepatvirtinta" iki 0 etapo), `0xE548/9`.
+- `helpers/enums.py` — nauji `OperateCode`: `0x000E/F`, `0xF00E/F` (patvirtinti etape 0), `0xE548/9`.
 - `core/telegram.py`, `helpers/telegram_helper.py` — `operate_code_raw`, `None` apsauga.
 - `buspro.py` — `add_telegram_listener/remove`, `async request(...)`.
 - `transport/network_interface.py` — siuntimo eilė su minimaliu tarpu.

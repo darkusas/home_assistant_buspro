@@ -120,7 +120,7 @@ class OperateCode(Enum):
     ReadDeviceRemarkResponse = b'\x00\x0F'
     ReadDeviceModule = b'\xE5\x48'
     ReadDeviceModuleResponse = b'\xE5\x49'
-    # Not yet verified on real hardware (docs/device-scan-plan.md, stage 0).
+    # Confirmed from HDL Buspro Setup Tool 2 captures (docs/protocol-captures/2026-10-25-analysis.md).
     ReadChannelRemark = b'\xF0\x0E'
     ReadChannelRemarkResponse = b'\xF0\x0F'
 
