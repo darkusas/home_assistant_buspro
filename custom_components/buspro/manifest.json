@@ -1,24 +1,24 @@
 {
   "domain": "buspro",
   "name": "HDL Buspro",
-  "config_flow": true,
-  "documentation": "https://github.com/darkusas/home_assistant_buspro",
-  "issue_tracker": "https://github.com/darkusas/home_assistant_buspro/issues",
+  "after_dependencies": [
+    "frontend",
+    "panel_custom"
+  ],
   "codeowners": [
     "@eyesoft"
   ],
+  "config_flow": true,
   "dependencies": [
     "http",
     "websocket_api"
   ],
+  "documentation": "https://github.com/darkusas/home_assistant_buspro",
+  "homekit": {},
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/darkusas/home_assistant_buspro/issues",
   "requirements": [],
   "ssdp": [],
-  "zeroconf": [],
-  "homekit": {},
   "version": "1.2.0",
-  "iot_class": "local_polling",
-  "after_dependencies": [
-    "frontend",
-    "panel_custom"
-  ]
+  "zeroconf": []
 }

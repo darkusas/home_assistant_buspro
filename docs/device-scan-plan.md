@@ -198,14 +198,14 @@ Dydžiai: **S** ≈ pusdienis, **M** ≈ 1–2 d., **L** ≈ 3+ d. (apytiksliai,
 - Diagnostika: config entry (be šliuzo adreso), paskutinis skanavimas (be MAC), nežinomi tipų kodai su kiekiais, ranka nurodyti tipai, iš skydelio pridėti entity.
 - Vertimai `strings.json`, `translations/en.json`, `translations/lt.json`: konfigūracija, Repairs įspėjimas ir visi penki servisai (`services.yaml` liko tik laukai ir selektoriai). Servisai `scan`, `test_channel` tikrina, ar kvietėjas administratorius.
 - `manifest.json` 1.2.0, nuorodos į šį repozitoriją; `hacs.json` `homeassistant: 2024.7.0`.
-- CI `.github/workflows/tests.yml`: bibliotekos `pytest`, HA `pytest tests_ha`, skydelio testas Chromium. `hassfest` ir HACS validacija neįtraukti — jų nepavyko paleisti be tinklo; galima pridėti vėliau (`home-assistant/actions/hassfest`, `hacs/action`).
+- CI `.github/workflows/tests.yml`: bibliotekos `pytest`, HA `pytest tests_ha`, skydelio testas Chromium. `hassfest` ir HACS validacija — atskirame `.github/workflows/validate.yml` (kiekvienam push ir kas naktį).
 
 ## 9. Testavimo strategija
 
 - `tests/fakebus.py` — atmintyje esantis UDP pakaitalas su simuliuotais įrenginiais (atsakinėja `0x0033/0x0031/0x000E/0xF00E/0xE548…`, gali „ignoruoti broadcast `0x0033`", gali neatsakyti, gali siųsti `0x0032` broadcast'ą).
 - `pytest` vienetiniai: telegramų parsing/CRC, `0xE549` parseris, remark dekoderis (utf-8/cp1257), skanerio fazės, testo patvirtinimas/impulsas, išskyrimo sąrašo rotacija.
 - HA lygis su `pytest-homeassistant-custom-component`: WS komandos (admin-only), platformų `async_setup_entry`, dinaminis pridėjimas/šalinimas, `unique_id` dublikatai, `Store` migracija.
-- CI (GitHub Actions): `pytest`, `pytest tests_ha`, skydelio testas Chromium (`.github/workflows/tests.yml`); `hassfest`, HACS validation — vėliau.
+- CI (GitHub Actions): `pytest`, `pytest tests_ha`, skydelio testas Chromium (`.github/workflows/tests.yml`); `hassfest`, HACS validation (`.github/workflows/validate.yml`).
 - **Rankinis sąrašas su tikra įranga**: (1) skanas randa visus žinomus įrenginius; (2) pavadinimai sutampa su Setup Tool; (3) ON/OFF fiziškai perjungia; (4) fizinio jungiklio paspaudimas atsispindi UI; (5) HA restartas — entity išlieka ir turi būseną; (6) skanavimas nesutrikdo veikiančių entity.
 
 ## 10. Rizikos, atviri klausimai

@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 from .control import _SingleChannelControl, _ReadStatusOfChannels
 from .device import Device
 from ..helpers.enums import *
