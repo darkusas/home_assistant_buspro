@@ -21,11 +21,17 @@ def remark_bytes(text):
     return data + [0] * (20 - len(data))
 
 
+def zone_status(zone, on=True, mode=1, setpoints=(21, 21, 20, 14), timer=0, room=21, valve=False):
+    """A floor heating module zone as reported in 0x1C5F/0x1C5D (14 bytes, like the captured module)."""
+    return [zone, 1 if on else 0, 0, mode, *setpoints, timer, room, 1 if valve else 0, 5, 0, 0]
+
+
 class SimDevice:
     def __init__(self, address, type_code, remark=None, mac=None, functions=None, levels=None,
                  channel_names=None, answers_search=True, missed_searches=0, answers_remark=True,
                  broadcasts=(), confirms=True, fails=False, curtains=None, universal_switches=None,
-                 floor_heating=False, sensor_status=None, temperature=None):
+                 floor_heating=False, sensor_status=None, temperature=None, heating_zones=None,
+                 floor_sensors=None):
         self.address = address
         self.type_code = type_code
         self.remark = remark
@@ -45,6 +51,10 @@ class SimDevice:
         self.floor_heating = [0, 22, 0, 1, 24, 21, 19, 18] if floor_heating else None
         self.sensor_status = sensor_status  # 0x1646 payload answered to 0x1645
         self.temperature = temperature  # answered to ReadTemperature (0xE3E7), like wall panels
+        # Floor heating module: zone -> (name, zone_status(...) list); number -> (name, zone, temperature)
+        self.heating_zones = heating_zones
+        self.floor_sensors = floor_sensors
+        self.zone_commands = []  # 0x1C5C payloads received
         self.received = []
 
     def reply(self, operate_code, payload, target):
@@ -109,11 +119,37 @@ class SimDevice:
             return [self.reply(0xE01D, [payload[0], 1 if payload[1] == 255 else 0], BROADCAST)]
         if code == 0xE018 and self.universal_switches is not None and payload[0] in self.universal_switches:
             return [self.reply(0xE019, [payload[0], 1 if self.universal_switches[payload[0]] else 0], source)]
+        if self.heating_zones is not None:
+            answer = self._floor_heating_module(code, payload, source)
+            if answer is not None:
+                return answer
         if code == 0xF003:
             return [self.reply(0xF004, list(self.mac), source)]
         if code == 0xF00E and payload and payload[0] in self.channel_names:
             return [self.reply(0xF00F, [payload[0]] + remark_bytes(self.channel_names[payload[0]]), source)]
         return []
+
+    def _floor_heating_module(self, code, payload, source):
+        zone = payload[0] if payload else None
+        if code == 0x1C5E and zone in self.heating_zones:
+            return [self.reply(0x1C5F, self.heating_zones[zone][1], source)]
+        if code == 0x1C5C and zone in self.heating_zones and len(payload) >= 10:
+            self.zone_commands.append(list(payload))
+            status = self.heating_zones[zone][1]
+            status[1:8] = payload[1:8]
+            return [self.reply(0x1C5D, status, BROADCAST)]
+        if code == 0x1D02 and zone in self.heating_zones:
+            name = list((self.heating_zones[zone][0] or "").encode("utf-16-be"))[:20]
+            return [self.reply(0x1D03, [zone] + name + [0] * (20 - len(name)), source)]
+        if code == 0x1D12:
+            count = len(self.floor_sensors or {})
+            return [self.reply(0x1D13, [0, count, count, 0], source)]
+        if code == 0x1D16 and zone in (self.floor_sensors or {}):
+            name, sensor_zone, temperature = self.floor_sensors[zone]
+            rom = [0x28, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, zone]
+            return [self.reply(0x1D17, [zone] + rom + [0, 0x0A] + remark_bytes(name) + [sensor_zone, temperature],
+                               source)]
+        return None
 
 
 class FakeBus:

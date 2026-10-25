@@ -33,7 +33,7 @@ const STRINGS = {
       binary_sensor: "Dvejetainis jutiklis", climate: "Termostatas" },
     features: { temperature: "Temperatūra", illuminance: "Apšvietimas", motion: "Judesys",
       dry_contact_1: "Sausas kontaktas 1", dry_contact_2: "Sausas kontaktas 2", curtain: "Užuolaida",
-      floor_heating: "Grindų šildymas" },
+      floor_heating: "Grindų šildymas", heating_zone: "Šildymo zona", floor_sensor: "Grindų termometras" },
     feature: "Funkcija",
     openingTime: "Atidarymo laikas, s",
     motionYes: "Judesys", motionNo: "Nėra",
@@ -41,6 +41,13 @@ const STRINGS = {
     heatingOn: "Šildo", heatingOff: "Išjungta",
     presets: { 1: "normalus", 2: "dienos", 3: "nakties", 4: "išvykus", 5: "laikmatis" },
     heatingNote: "Šildymo skaitymas patikrintas įrašais; valdymas dar nebandytas su tikra įranga.",
+    heatingModuleNote: "Zonų ir grindų termometrų skaitymas patikrintas įrašu. Valdymas atliekamas pagal HDL dokumentaciją ir su tikra įranga dar nebandytas: išbandykite zoną mygtukais ir žiūrėkite, ar modulis patvirtina.",
+    zone: "Zona {n}",
+    floorSensor: "Grindų termometras {n}",
+    floorSensorZone: "Grindų termometras {n} · zona {zone}",
+    floorSensorName: "grindys",
+    setpoint: "Nustatyti",
+    valveOpen: "vožtuvas atidarytas",
     notAddable: "dar nepalaikoma",
     universal: "Universalūs jungikliai",
     universalHelp: "Skanuojant jų nerasti: įveskite numerį (pvz. iš logikos modulio), išbandykite ir pridėkite.",
@@ -84,6 +91,7 @@ const STRINGS = {
       "Could not read the current level, so it will not be restored": "Nepavyko nuskaityti būsenos, todėl ji nebus atstatyta",
       "Too many commands for this channel; wait a moment": "Per daug komandų šiam kanalui, palaukite akimirką",
       "An HDL bus scan is already running": "Skanavimas jau vyksta",
+      "A floor heating setpoint must be 5-35 °C": "Grindų šildymo temperatūra turi būti 5–35 °C",
     },
   },
   en: {
@@ -117,7 +125,7 @@ const STRINGS = {
       climate: "Thermostat" },
     features: { temperature: "Temperature", illuminance: "Illuminance", motion: "Motion",
       dry_contact_1: "Dry contact 1", dry_contact_2: "Dry contact 2", curtain: "Curtain",
-      floor_heating: "Floor heating" },
+      floor_heating: "Floor heating", heating_zone: "Heating zone", floor_sensor: "Floor sensor" },
     feature: "Feature",
     openingTime: "Opening time, s",
     motionYes: "Motion", motionNo: "Clear",
@@ -125,6 +133,13 @@ const STRINGS = {
     heatingOn: "Heating", heatingOff: "Off",
     presets: { 1: "normal", 2: "day", 3: "night", 4: "away", 5: "timer" },
     heatingNote: "Reading the heating is confirmed by captures; control is not yet tested on real hardware.",
+    heatingModuleNote: "Reading zones and floor sensors is confirmed by a capture. Control follows the HDL documentation and is not yet tested on real hardware: try a zone with the buttons and check that the module confirms.",
+    zone: "Zone {n}",
+    floorSensor: "Floor sensor {n}",
+    floorSensorZone: "Floor sensor {n} · zone {zone}",
+    floorSensorName: "floor",
+    setpoint: "Set",
+    valveOpen: "valve open",
     notAddable: "not supported yet",
     universal: "Universal switches",
     universalHelp: "A scan does not find them: enter the number (e.g. from a logic module), test it and add it.",
@@ -165,6 +180,8 @@ const STRINGS = {
 };
 
 const OUTPUT_KINDS = ["relay", "dimmer", "dmx", "output"];
+const FEATURE_PLATFORMS = { curtain: "cover", temperature: "sensor", illuminance: "sensor", floor_heating: "climate",
+  heating_zone: "climate", floor_sensor: "sensor" };
 // What a device type can be set to by hand (buspro/type_override/set).
 const OVERRIDE_CATEGORIES = ["output_module", "curtain_module", "sensor", "panel", "logic", "gateway"];
 const COUNTED_CATEGORIES = ["output_module", "curtain_module"];
@@ -269,6 +286,8 @@ const STYLE = `
   .state.on { color: var(--bp-ok); }
   .tests { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
   .tests input[type=range] { width: 90px; }
+  .tests input.setpoint { width: 64px; }
+  table.features td.state { white-space: normal; min-width: 140px; }
   .result { font-size: 12px; margin-top: 2px; }
   .result.ok { color: var(--bp-ok); }
   .result.bad { color: var(--bp-error); }
@@ -325,6 +344,8 @@ class BusproPanel extends HTMLElement {
   _resetLive() {
     this._liveSensor = {}; // temperature, illuminance, motion, dry_contact_1, dry_contact_2
     this._liveHeating = {};
+    this._liveZones = {}; // floor heating module: zone -> status
+    this._liveFloor = {}; // floor heating module: floor sensor -> °C
     this._liveCurtain = {}; // curtain -> status
     this._liveUniversal = {}; // switch -> bool
     this._featureCells = {};
@@ -452,6 +473,8 @@ class BusproPanel extends HTMLElement {
       else if (update.kind === "sensor") Object.assign(this._liveSensor, update.value);
       else if (update.kind === "floor_heating") Object.assign(this._liveHeating, update.value);
       else if (update.kind === "curtain") this._liveCurtain[update.number] = update.value;
+      else if (update.kind === "heating_zone") this._liveZones[update.number] = update.value;
+      else if (update.kind === "floor_sensor") this._liveFloor[update.number] = update.value;
       else if (update.kind === "universal_switch") this._liveUniversal[update.number] = update.value;
       else if (update.kind === "channels_on") {
         update.value.forEach((on, index) => {
@@ -511,6 +534,10 @@ class BusproPanel extends HTMLElement {
     if (result.kind === "output") value = `${result.value} %`;
     else if (result.kind === "universal_switch") value = result.value ? t.stateOn : t.stateOff;
     else if (result.kind === "curtain") value = t.curtainStatus[result.value] || result.value;
+    else if (result.kind === "heating_zone") {
+      // On/off answers 1 or 0, a setpoint its temperature (5-35 °C).
+      value = result.value === null ? null : (result.value <= 1 ? (result.value ? t.stateOn : t.stateOff) : `${result.value} °C`);
+    }
     if (result.confirmed) {
       return { ok: true, text: format(this.t.confirmed, { value, code: result.confirmed_by,
         ms: Math.round((result.latency || 0) * 1000) }) };
@@ -878,9 +905,15 @@ class BusproPanel extends HTMLElement {
   _featureEdit(device, channel) {
     const key = this._featureKey(device, channel);
     if (!this._edits[key]) {
-      const label = this.t.features[channel.entity_kind] || channel.kind;
+      const t = this.t;
+      const label = t.features[channel.entity_kind] || channel.kind;
       const base = channel.name || device.remark || device.address;
-      const name = channel.entity_kind === "curtain" ? base : `${base} ${label.toLowerCase()}`;
+      let name = channel.entity_kind === "curtain" ? base : `${base} ${label.toLowerCase()}`;
+      if (channel.entity_kind === "heating_zone") {
+        name = channel.name || `${device.remark || device.address} ${format(t.zone, { n: channel.number }).toLowerCase()}`;
+      } else if (channel.entity_kind === "floor_sensor") {
+        name = channel.name || `${device.remark || device.address} ${t.floorSensorName} ${channel.number}`;
+      }
       this._edits[key] = { checked: false, name, openingTime: 20 };
     }
     return this._edits[key];
@@ -906,6 +939,9 @@ class BusproPanel extends HTMLElement {
     updateCount();
     const parts = [el("div", { class: "table-wrap" }, table)];
     if (channels.some((c) => c.entity_kind === "floor_heating")) parts.push(el("div", { class: "info note", text: t.heatingNote }));
+    if (channels.some((c) => c.kind === "heating_zone")) {
+      parts.push(el("div", { class: "info note", text: t.heatingModuleNote }));
+    }
     if (addable.length) parts.push(el("div", { class: "footer" }, [el("span"), addButton]));
     return el("div", {}, parts);
   }
@@ -914,18 +950,21 @@ class BusproPanel extends HTMLElement {
     const t = this.t;
     const kind = channel.entity_kind;
     const entity = channel.entity;
-    const label = kind ? t.features[kind] : `${t.kinds[channel.kind] || channel.kind} ${channel.number}`;
+    const label = this._featureLabel(channel);
     const stateCell = el("td", { class: "state" });
     const key = kind ? this._featureKey(device, channel) : `${device.address}.${channel.kind}.${channel.number}`;
     this._featureCells[key] = { cell: stateCell, device, channel };
 
-    const resultKey = `${device.address}:curtain:${channel.number}`;
+    const target = { curtain: "curtain", heating_zone: "heating_zone" }[channel.kind];
+    const resultKey = `${device.address}:${target}:${channel.number}`;
     const resultNode = el("div", { class: "result" });
     let tests = null;
+    if (target) this._resultCells[resultKey] = resultNode;
     if (channel.kind === "curtain") {
-      this._resultCells[resultKey] = resultNode;
       tests = el("div", { class: "tests" }, ["open", "stop", "close"].map((action) =>
         el("button", { class: "small", onclick: () => this._test(device, channel, "curtain", action), text: t[action] })));
+    } else if (channel.kind === "heating_zone") {
+      tests = this._zoneTests(device, channel);
     }
 
     if (!kind) {
@@ -945,8 +984,7 @@ class BusproPanel extends HTMLElement {
       type: "text", value: entity && entity.name ? entity.name : edit.name, disabled: Boolean(entity),
       "aria-label": `name ${kind}`, oninput: (e) => { edit.name = e.target.value; },
     });
-    const platform = { curtain: "cover", temperature: "sensor", illuminance: "sensor", floor_heating: "climate" }[kind]
-      || "binary_sensor";
+    const platform = FEATURE_PLATFORMS[kind] || "binary_sensor";
     const typeCell = el("td", { class: "type" }, [el("div", { class: "muted", text: t.platforms[platform] })]);
     if (kind === "curtain" && !entity) {
       typeCell.append(el("label", { class: "note" }, [`${t.openingTime} `, el("input", {
@@ -966,6 +1004,35 @@ class BusproPanel extends HTMLElement {
     this._fillFeature(key);
     this._renderResult(resultKey);
     return row;
+  }
+
+  _featureLabel(channel) {
+    const t = this.t;
+    if (channel.kind === "heating_zone") return format(t.zone, { n: channel.number });
+    if (channel.kind === "floor_sensor") {
+      return channel.zone ? format(t.floorSensorZone, { n: channel.number, zone: channel.zone })
+        : format(t.floorSensor, { n: channel.number });
+    }
+    return channel.entity_kind ? t.features[channel.entity_kind]
+      : `${t.kinds[channel.kind] || channel.kind} ${channel.number}`;
+  }
+
+  _zoneTests(device, channel) {
+    const t = this.t;
+    const zone = this._liveZones[channel.number];
+    const setpoint = el("input", {
+      type: "number", min: "5", max: "35", value: zone && zone.target ? String(zone.target) : "21",
+      class: "setpoint", "aria-label": `setpoint ${channel.number}`,
+    });
+    return el("div", { class: "tests" }, [
+      el("button", { class: "small", onclick: () => this._test(device, channel, "heating_zone", "on"), text: t.on }),
+      el("button", { class: "small", onclick: () => this._test(device, channel, "heating_zone", "off"), text: t.off }),
+      setpoint,
+      el("button", {
+        class: "small", text: t.setpoint,
+        onclick: () => this._test(device, channel, "heating_zone", "level", Number(setpoint.value)),
+      }),
+    ]);
   }
 
   _entityCell(entity) {
@@ -996,6 +1063,17 @@ class BusproPanel extends HTMLElement {
         const status = this._liveCurtain[channel.number];
         return status === undefined ? null : (t.curtainStatus[status] || String(status));
       }
+      case "heating_zone": {
+        const z = this._liveZones[channel.number];
+        if (z === undefined) return null;
+        const current = z.temperature === null || z.temperature === undefined ? "" : `${z.temperature} °C → `;
+        const valve = z.on && z.valve ? ` · ${t.valveOpen}` : "";
+        return `${z.on ? t.heatingOn : t.heatingOff} · ${current}${z.target} °C (${t.presets[z.mode] || z.mode})${valve}`;
+      }
+      case "floor_sensor": {
+        const value = this._liveFloor[channel.number];
+        return value === undefined || value === null ? null : `${value} °C`;
+      }
       case "floor_heating": {
         const h = this._liveHeating;
         if (h.status === undefined) return null;
@@ -1014,8 +1092,9 @@ class BusproPanel extends HTMLElement {
     entry.cell.textContent = text === null ? "—" : text;
     const on = ["motion", "dry_contact_1", "dry_contact_2"].includes(entry.channel.entity_kind)
       && this._liveSensor[entry.channel.entity_kind];
+    const zone = entry.channel.kind === "heating_zone" && this._liveZones[entry.channel.number];
     entry.cell.className = on || (entry.channel.entity_kind === "floor_heating" && this._liveHeating.status)
-      ? "state on" : "state";
+      || (zone && zone.on) ? "state on" : "state";
   }
 
   _renderUniversal(device) {
@@ -1095,8 +1174,7 @@ class BusproPanel extends HTMLElement {
       const edit = this._featureEdit(device, channel);
       if (!edit.checked) continue;
       const kind = channel.entity_kind;
-      const platform = { curtain: "cover", temperature: "sensor", illuminance: "sensor", floor_heating: "climate" }[kind]
-        || "binary_sensor";
+      const platform = FEATURE_PLATFORMS[kind] || "binary_sensor";
       const item = { kind, platform, channel: channel.entity_number, name: edit.name.trim() || this.t.features[kind] };
       if (kind === "curtain") item.opening_time = edit.openingTime;
       entities.push(item);

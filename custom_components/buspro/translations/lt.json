@@ -61,11 +61,11 @@
         },
         "action": {
           "name": "Veiksmas",
-          "description": "Išėjimai: on, off, level, pulse. Užuolaidos: open, close, stop. Universalūs jungikliai: on, off."
+          "description": "Išėjimai: on, off, level, pulse. Užuolaidos: open, close, stop. Universalūs jungikliai: on, off. Grindų šildymo zonos: on, off, level (nustatyta temperatūra)."
         },
         "level": {
           "name": "Lygis",
-          "description": "Lygis veiksmui „level“ arba „pulse“ (numatytas 100)."
+          "description": "Lygis veiksmui „level“ arba „pulse“ (numatytas 100); grindų šildymo zonai – nustatyta temperatūra °C."
         },
         "duration": {
           "name": "Impulso trukmė",

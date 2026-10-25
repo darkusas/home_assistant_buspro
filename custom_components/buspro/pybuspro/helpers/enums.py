@@ -126,6 +126,18 @@ class OperateCode(Enum):
     ReadChannelRemark = b'\xF0\x0E'
     ReadChannelRemarkResponse = b'\xF0\x0F'
 
+    # Floor heating module (0x00CF), see devices/floor_heating_module.py.
+    ControlFloorHeatingModuleStatus = b'\x1C\x5C'
+    ControlFloorHeatingModuleStatusResponse = b'\x1C\x5D'
+    ReadFloorHeatingModuleStatus = b'\x1C\x5E'
+    ReadFloorHeatingModuleStatusResponse = b'\x1C\x5F'
+    ReadFloorHeatingZoneRemark = b'\x1D\x02'
+    ReadFloorHeatingZoneRemarkResponse = b'\x1D\x03'
+    ReadFloorSensorCount = b'\x1D\x12'
+    ReadFloorSensorCountResponse = b'\x1D\x13'
+    ReadFloorSensor = b'\x1D\x16'
+    ReadFloorSensorResponse = b'\x1D\x17'
+
     """
     # 
     # 

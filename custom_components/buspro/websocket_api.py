@@ -68,6 +68,8 @@ def entity_kind(category: str, channel_kind: str, number: int) -> str | None:
         return "output"
     if category == "curtain_module" and channel_kind == "curtain":
         return "curtain"
+    if category == "floor_heating" and channel_kind in ("heating_zone", "floor_sensor"):
+        return channel_kind
     if category in ("sensor", "panel"):
         if channel_kind in _SENSOR_CHANNEL_KINDS and number == 1:
             return channel_kind
@@ -134,8 +136,9 @@ def _scan_with_entities(module) -> dict | None:
         subnet_id, device_id = (int(part) for part in device["address"].split("."))
         for channel in device["channels"]:
             kind = entity_kind(device["category"], channel["kind"], channel["number"])
-            # Outputs and curtains are numbered; sensor readings are one entity per device and kind.
-            number = channel["number"] if kind in ("output", "curtain") else 1
+            # Outputs, curtains, heating zones and floor sensors are numbered; sensor readings are one
+            # entity per device and kind.
+            number = channel["number"] if kind in ("output", "curtain", "heating_zone", "floor_sensor") else 1
             channel["entity_kind"] = kind
             channel["entity_number"] = number if kind else None
             channel["entity"] = module.entity_for(subnet_id, device_id, kind, number) if kind else None
@@ -195,7 +198,7 @@ def ws_scan_subscribe(hass: HomeAssistant, connection: websocket_api.ActiveConne
     vol.Required("type"): "buspro/channel/test",
     vol.Required("address"): vol.All(cv.string, parse_device_address),
     vol.Required("channel"): vol.All(vol.Coerce(int), vol.Range(min=1, max=255)),
-    vol.Optional("target", default="output"): vol.In(["output", "curtain", "universal_switch"]),
+    vol.Optional("target", default="output"): vol.In(["output", "curtain", "universal_switch", "heating_zone"]),
     vol.Required("action"): vol.In(TEST_ACTIONS),
     vol.Optional("level"): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
     vol.Optional("duration", default=2): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=30)),
@@ -254,6 +257,8 @@ def _state_reads(module, device) -> list:
         reads.append((OperateCode.ReadTemperature, [1]))
     if "floor_heating" in kinds:
         reads.append((OperateCode.ReadFloorHeatingStatus, []))
+    reads += [(OperateCode.ReadFloorHeatingModuleStatus, [c.number]) for c in device.channels if c.kind == "heating_zone"]
+    reads += [(OperateCode.ReadFloorSensor, [c.number]) for c in device.channels if c.kind == "floor_sensor"]
     return reads
 
 

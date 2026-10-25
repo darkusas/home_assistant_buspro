@@ -28,6 +28,7 @@ KNOWN_TYPES = {
     # answers ReadTemperature (0x1948) with 0x1949 [channel, float32].
     0x0086: (SENSOR, "temperature module"),
     0x0095: (PANEL, "DLP panel"),
+    0x00CF: (FLOOR_HEATING, "HDL-MFH06.432 floor heating module"),  # describes itself as (8, 0, 6)
     0x009C: (PANEL, "DLP panel v2"),
     0x012B: (PANEL, "SB-WS8M 8-key panel"),
     0x0134: (SENSOR, "CMS 12-in-1 sensor"),

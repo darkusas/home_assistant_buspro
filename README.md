@@ -32,8 +32,10 @@ What can be added:
 | Sensors: motion, dry contact 1 and 2 | `binary_sensor` |
 | Universal switches (enter the number, e.g. of a logic module; tested with ON/OFF) | `switch` or `binary_sensor` |
 | Floor heating of DLP panels | `climate` (on/off, temperature, normal/day/night/away/timer) |
+| Floor heating module zones (HDL-MFH06.432, type 0x00CF; tested with ON, OFF and a setpoint) | `climate` (on/off, temperature, presets, heating while the valve is open) |
+| Floor heating module floor sensors (1-wire) | `sensor` (°C) |
 
-Reading the DLP floor heating is confirmed with captures of real installations; controlling it follows the HDL operation code list and has not yet been tried on real hardware. Floor heating modules, multi-channel temperature modules and dry contact input modules are listed but cannot be added yet.
+Reading the DLP floor heating and the floor heating module is confirmed with captures of real installations; controlling either follows the HDL operation code list and has not yet been tried on real hardware, so test a zone in the panel first. Multi-channel temperature modules and dry contact input modules are listed but cannot be added yet.
 
 Channels already configured in YAML are marked and cannot be added a second time. Added entities are stored in `.storage/buspro.entities` and can be removed from the panel.
 

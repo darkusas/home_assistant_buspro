@@ -1,4 +1,4 @@
-"""Switch channels, curtains and universal switches directly on the bus, with confirmation.
+"""Switch channels, curtains, universal switches and floor heating zones on the bus, with confirmation.
 
 Used to test a channel before it is added to Home Assistant: every command waits for
 the device's own answer, so the result says what the device really did. A pulse
@@ -10,6 +10,7 @@ import logging
 import time
 from dataclasses import asdict, dataclass
 
+from ..devices.floor_heating_module import build_zone_control, parse_zone_status
 from ..helpers.enums import OperateCode
 
 _LOGGER = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ SUCCESS = 0xF8
 OUTPUT = "output"
 CURTAIN = "curtain"
 UNIVERSAL_SWITCH = "universal_switch"
+HEATING_ZONE = "heating_zone"
 
 CURTAIN_STOP = 0
 CURTAIN_OPEN = 1
@@ -204,6 +206,58 @@ class BusController:
             result.latency = time.monotonic() - started
             result.confirmed_by = _code_text(reply)
             result.value = value_of(reply.payload)
+            result.confirmed = result.value == requested
+        self._log(result)
+        return result
+
+    # Floor heating module zones
+
+    async def read_heating_zone(self, address, zone):
+        """ZoneStatus of one zone, or None if the module does not answer."""
+        reply = await self._buspro.request(
+            tuple(address), OperateCode.ReadFloorHeatingModuleStatus, [zone],
+            OperateCode.ReadFloorHeatingModuleStatusResponse, match=lambda t: t.payload[:1] == [zone],
+            timeout=self._confirm_timeout)
+        return None if reply is None else parse_zone_status(reply.payload)
+
+    async def set_heating_zone(self, address, zone, on=None, temperature=None):
+        """Switch a zone on or off, or change the setpoint it uses now (°C).
+
+        The module also broadcasts 0x1C5D when the room temperature changes, so only an answer
+        with the requested value confirms; otherwise the zone is read again to report its value.
+        """
+        address = tuple(address)
+        self._check_rate((address, HEATING_ZONE, zone))
+        requested = (1 if on else 0) if temperature is None else int(round(temperature))
+
+        def value_of(status):
+            return (1 if status.on else 0) if temperature is None else status.setpoints[status.active_setpoint]
+
+        result = CommandResult(_address_text(address), HEATING_ZONE, zone, requested, confirmed=False)
+        started = time.monotonic()
+        status = await self.read_heating_zone(address, zone)
+        if status is None:
+            result.error = "No answer from the device"
+            self._log(result)
+            return result
+
+        setpoints = {} if temperature is None else {status.active_setpoint: requested}
+        payload = build_zone_control(status, on=on, setpoints=setpoints)
+
+        def confirms(telegram):
+            answer = parse_zone_status(telegram.payload)
+            return answer is not None and answer.zone == zone and value_of(answer) == requested
+
+        reply = await self._buspro.request(address, OperateCode.ControlFloorHeatingModuleStatus, payload,
+                                           OperateCode.ControlFloorHeatingModuleStatusResponse, match=confirms,
+                                           timeout=self._confirm_timeout)
+        answer = parse_zone_status(reply.payload) if reply is not None else await self.read_heating_zone(address, zone)
+        if answer is None:
+            result.error = "No answer from the device"
+        else:
+            result.latency = time.monotonic() - started
+            result.confirmed_by = _code_text(reply) if reply is not None else "0x1C5F"
+            result.value = value_of(answer)
             result.confirmed = result.value == requested
         self._log(result)
         return result

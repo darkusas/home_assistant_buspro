@@ -200,6 +200,13 @@ Dydžiai: **S** ≈ pusdienis, **M** ≈ 1–2 d., **L** ≈ 3+ d. (apytiksliai,
 - `manifest.json` 1.2.0, nuorodos į šį repozitoriją; `hacs.json` `homeassistant: 2024.7.0`.
 - CI `.github/workflows/tests.yml`: bibliotekos `pytest`, HA `pytest tests_ha`, skydelio testas Chromium. `hassfest` ir HACS validacija — atskirame `.github/workflows/validate.yml` (kiekvienam push ir kas naktį).
 
+### Grindų šildymo modulis 0x00CF
+
+- Skaneris randa modulio zonas (iš `0xE549`, pvz. 6) su pavadinimais (`0x1D02`) ir 1-wire grindų termometrus su pavadinimais ir zona (`0x1D12`, `0x1D16`); skydelis rodo jų gyvas reikšmes (`0x1C5F`/`0x1C5D`, `0x1D17`).
+- Zona pridedama kaip `climate`: įj./išj., režimai normal/day/night/away/timer, aktyvaus režimo nustatyta temperatūra, kambario temperatūra, `hvac_action` pagal vožtuvą. Termometras — kaip temperatūros `sensor` (skaitomas kas minutę).
+- Skydelyje zoną galima išbandyti prieš pridedant: ĮJ, IŠJ ir „Nustatyti“ (temperatūra °C), su modulio patvirtinimu.
+- Skaitymas patikrintas įrašu; valdymas (`0x1C5C`) pagal oficialų sąrašą, su tikra įranga dar nebandytas.
+
 ## 9. Testavimo strategija
 
 - `tests/fakebus.py` — atmintyje esantis UDP pakaitalas su simuliuotais įrenginiais (atsakinėja `0x0033/0x0031/0x000E/0xF00E/0xE548…`, gali „ignoruoti broadcast `0x0033`", gali neatsakyti, gali siųsti `0x0032` broadcast'ą).
