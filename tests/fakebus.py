@@ -31,7 +31,7 @@ class SimDevice:
                  channel_names=None, answers_search=True, missed_searches=0, answers_remark=True,
                  broadcasts=(), confirms=True, fails=False, curtains=None, universal_switches=None,
                  floor_heating=False, sensor_status=None, temperature=None, heating_zones=None,
-                 floor_sensors=None):
+                 floor_sensors=None, curtain_positions=None):
         self.address = address
         self.type_code = type_code
         self.remark = remark
@@ -46,6 +46,7 @@ class SimDevice:
         self.confirms = confirms  # broadcast 0x0032 after 0x0031
         self.fails = fails  # answer 0x0031 with 0xF5 and do not switch
         self.curtains = curtains  # curtain -> status (0 stop, 1 open, 2 close)
+        self.curtain_positions = curtain_positions  # curtain -> % for curtains that know their position
         self.universal_switches = universal_switches  # switch -> bool
         # DLP floor heating: [temperature type, current, status, mode, normal, day, night, away]
         self.floor_heating = [0, 22, 0, 1, 24, 21, 19, 18] if floor_heating else None
@@ -100,6 +101,12 @@ class SimDevice:
                     mask[index // 8] |= 1 << (index % 8)
             answer = [payload[0], 0xF5 if self.fails else 0xF8, self.levels[payload[0] - 1], len(self.levels)]
             return [self.reply(0x0032, answer + mask, BROADCAST)] if self.confirms else []
+        if code in (0xE3E0, 0xE3E2) and self.curtain_positions is not None and payload[0] - 16 in self.curtain_positions:
+            curtain = payload[0] - 16  # the position of curtain n is addressed as n + 16
+            if code == 0xE3E0:
+                self.curtain_positions[curtain] = payload[1]
+                return [self.reply(0xE3E1, [payload[0], payload[1]], BROADCAST)] if self.confirms else []
+            return [self.reply(0xE3E3, [payload[0], self.curtain_positions[curtain]], source)]
         if code == 0xE3E0 and self.curtains is not None and payload[0] in self.curtains:
             self.curtains[payload[0]] = payload[1]
             return [self.reply(0xE3E1, [payload[0], payload[1]], BROADCAST)] if self.confirms else []

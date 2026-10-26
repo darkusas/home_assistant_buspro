@@ -27,7 +27,8 @@ What can be added:
 | From | As |
 |---|---|
 | Relay, dimmer and DMX channels | `switch`, `light` (on/off or dimmable) |
-| Curtain modules (tested with ▲ ■ ▼) | `cover`, with its opening time |
+| Curtain modules (tested with ▲ ■ ▼) | `cover`, positioned by its opening time |
+| Curtains that know their position, e.g. curtain motors (the scan asks each curtain; also tested with **Go to** %) | `cover`, sent straight to a position in % |
 | Sensors and wall panels: temperature, illuminance | `sensor` |
 | Sensors: motion, dry contact 1 and 2 | `binary_sensor` |
 | Universal switches (enter the number, e.g. of a logic module; tested with ON/OFF) | `switch` or `binary_sensor` |

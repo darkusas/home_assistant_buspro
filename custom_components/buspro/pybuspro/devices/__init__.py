@@ -4,6 +4,7 @@ from .device import Device
 from .floor_heating import FloorHeating
 from .floor_heating_module import FloorHeatingZone, FloorSensor
 from .light import Light
+from .position_cover import PositionCover
 from .scene import Scene
 from .cover import Cover
 from .sensor import Sensor

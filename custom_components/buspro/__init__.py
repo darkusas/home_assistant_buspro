@@ -64,7 +64,7 @@ SENSOR_READ_METHODS = {0x0134: "12in1", 0x0135: "8in1", 0x014A: "sensors_in_one"
 
 TEST_TARGET_ACTIONS = {
     "output": ("on", "off", "level", "pulse"),
-    "curtain": ("open", "close", "stop"),
+    "curtain": ("open", "close", "stop", "level"),  # level: position in %, for curtains that know it
     "universal_switch": ("on", "off"),
     "heating_zone": ("on", "off", "level"),  # level: setpoint in °C of the mode the zone uses now
 }
@@ -452,7 +452,9 @@ class BusproModule:
             raise HomeAssistantError("A floor heating setpoint must be 5-35 °C")
 
         try:
-            if target == "curtain":
+            if target == "curtain" and action == "level":
+                result = await self.controller.set_curtain_position(address, number, level)
+            elif target == "curtain":
                 status = {"open": CURTAIN_OPEN, "close": CURTAIN_CLOSE, "stop": CURTAIN_STOP}[action]
                 result = await self.controller.set_curtain(address, number, status)
             elif target == "universal_switch":

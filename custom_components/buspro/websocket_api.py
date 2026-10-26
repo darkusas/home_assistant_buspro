@@ -21,6 +21,7 @@ ENTITY_SCHEMA = vol.Schema({
     vol.Optional("dimmable", default=True): cv.boolean,
     vol.Optional("running_time", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=3600)),
     vol.Optional("opening_time", default=20): vol.All(vol.Coerce(int), vol.Range(min=1, max=600)),
+    vol.Optional("position", default=False): cv.boolean,  # curtain that goes to a percentage itself
     vol.Optional("device_class"): vol.Any(None, cv.string),
     vol.Optional("device_name"): vol.Any(None, cv.string),
     vol.Optional("device_model"): vol.Any(None, cv.string),
@@ -50,7 +51,7 @@ def _spec_from_message(module, item: dict) -> EntitySpec:
     if kind == "output" and platform == "light":
         options = {"dimmable": item["dimmable"], "running_time": item["running_time"]}
     elif kind == "curtain":
-        options = {"opening_time": item["opening_time"]}
+        options = {"opening_time": item["opening_time"], "position": item["position"]}
     elif kind in SENSOR_KINDS:
         options = {"device": module.sensor_read_method(subnet_id, device_id, item.get("device_model"),
                                                        item.get("device_category"))}
@@ -249,6 +250,7 @@ def _state_reads(module, device) -> list:
     reads = []
     if device.category == "curtain_module":
         reads += [(OperateCode.CurtainSwitchStatus, [c.number]) for c in device.channels]
+        reads += [(OperateCode.CurtainSwitchStatus, [c.number + 16]) for c in device.channels]  # position, if known
     if device.category == "sensor":
         method = module.sensor_read_method(device.subnet_id, device.device_id, f"0x{device.type_code or 0:04X}")
         reads.append({"sensors_in_one": (OperateCode.ReadSensorsInOneStatus, []),

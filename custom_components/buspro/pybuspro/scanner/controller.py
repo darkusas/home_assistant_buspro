@@ -11,6 +11,7 @@ import time
 from dataclasses import asdict, dataclass
 
 from ..devices.floor_heating_module import build_zone_control, parse_zone_status
+from ..devices.position_cover import POSITION_OFFSET
 from ..helpers.enums import OperateCode
 
 _LOGGER = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ SUCCESS = 0xF8
 
 OUTPUT = "output"
 CURTAIN = "curtain"
+CURTAIN_POSITION = "curtain_position"
 UNIVERSAL_SWITCH = "universal_switch"
 HEATING_ZONE = "heating_zone"
 
@@ -178,6 +180,18 @@ class BusController:
             tuple(address), CURTAIN, curtain, status, OperateCode.CurtainSwitchControl, [curtain, status],
             OperateCode.CurtainSwitchControlResponse, OperateCode.CurtainSwitchStatus, [curtain],
             OperateCode.CurtainSwitchStatusResponse, lambda payload: payload[1])
+
+    async def set_curtain_position(self, address, curtain, percent):
+        """Send a curtain that knows its position to percent (0 closed .. 100 open)."""
+        if not 0 <= percent <= 100:
+            raise BusControlError(f"position must be 0-100, got {percent}")
+        number = curtain + POSITION_OFFSET
+        result = await self._command_with_answer(
+            tuple(address), CURTAIN_POSITION, number, percent, OperateCode.CurtainSwitchControl, [number, percent],
+            OperateCode.CurtainSwitchControlResponse, OperateCode.CurtainSwitchStatus, [number],
+            OperateCode.CurtainSwitchStatusResponse, lambda payload: payload[1])
+        result.number = curtain
+        return result
 
     async def set_universal_switch(self, address, switch, on):
         return await self._command_with_answer(

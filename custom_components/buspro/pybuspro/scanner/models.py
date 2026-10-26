@@ -53,6 +53,7 @@ class ScannedDevice:
     zone_names: dict = field(default_factory=dict)  # floor heating module: zone -> name (0x1D03)
     floor_sensors: dict = field(default_factory=dict)  # floor heating module: number -> FloorSensorInfo
     floor_sensor_count: int = None  # floor heating module (0x1D13)
+    curtain_positions: dict = field(default_factory=dict)  # curtain -> % for curtains that report a position
     # Set by the user for the device's type: {"category": ..., "kind": "relay"/"dimmer", "count": n}
     override: dict = None
 
@@ -154,8 +155,10 @@ class ScannedDevice:
             return [ScannedChannel(number, kind, self.channel_names.get(number), self.levels.get(number))
                     for number, kind in enumerate(self._output_kinds(), start=1)]
         if category == CURTAIN_MODULE:
+            # level: the position in %, for curtains that know it (None for time-based ones)
             return [ScannedChannel(number, "curtain",
-                                   self.channel_names.get(2 * number - 1) or self.channel_names.get(2 * number))
+                                   self.channel_names.get(2 * number - 1) or self.channel_names.get(2 * number),
+                                   self.curtain_positions.get(number))
                     for number in range(1, self.curtain_count + 1)]
         if category == FLOOR_HEATING:
             zones = [ScannedChannel(number, "heating_zone", self.zone_names.get(number))

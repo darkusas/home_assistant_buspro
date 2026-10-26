@@ -61,7 +61,7 @@
         },
         "action": {
           "name": "Veiksmas",
-          "description": "Išėjimai: on, off, level, pulse. Užuolaidos: open, close, stop. Universalūs jungikliai: on, off. Grindų šildymo zonos: on, off, level (nustatyta temperatūra)."
+          "description": "Išėjimai: on, off, level, pulse. Užuolaidos: open, close, stop, level (padėtis %, užuolaidoms, kurios ją žino). Universalūs jungikliai: on, off. Grindų šildymo zonos: on, off, level (nustatyta temperatūra)."
         },
         "level": {
           "name": "Lygis",
