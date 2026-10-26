@@ -61,7 +61,7 @@
         },
         "action": {
           "name": "Action",
-          "description": "Outputs: on, off, level, pulse. Curtains: open, close, stop. Universal switches: on, off. Floor heating zones: on, off, level (setpoint)."
+          "description": "Outputs: on, off, level, pulse. Curtains: open, close, stop, level (position in %, for curtains that know it). Universal switches: on, off. Floor heating zones: on, off, level (setpoint)."
         },
         "level": {
           "name": "Level",

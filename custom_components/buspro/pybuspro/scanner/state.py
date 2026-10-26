@@ -10,12 +10,14 @@ import struct
 from dataclasses import dataclass
 
 from ..devices.floor_heating_module import FLOOR_SENSOR_CODE, ZONE_STATUS_CODES, parse_floor_sensor, parse_zone_status
+from ..devices.position_cover import parse_curtain_position
 
 _LOGGER = logging.getLogger(__name__)
 
 CHANNEL = "channel"  # value: level 0..100
 CHANNELS_ON = "channels_on"  # value: list of bools, channel 1 first (from the 0x0032 bitmask)
 CURTAIN = "curtain"  # value: 0 stop, 1 open, 2 close
+CURTAIN_POSITION = "curtain_position"  # value: 0..100 % (curtains that know their position)
 UNIVERSAL_SWITCH = "universal_switch"  # value: bool
 SENSOR = "sensor"  # value: dict of readings
 FLOOR_HEATING = "floor_heating"  # value: dict with status, mode, setpoints (and current temperature)
@@ -68,7 +70,11 @@ def decode_state(telegram):
         for number, status in enumerate(p[1:1 + p[0]], start=1):
             add(UNIVERSAL_SWITCH, number, status == 1)
     elif code in (0xE3E1, 0xE3E3) and len(p) >= 2:
-        add(CURTAIN, p[0], p[1])
+        position = parse_curtain_position(p)
+        if position is not None:
+            add(CURTAIN_POSITION, *position)
+        elif p[0] <= 16:
+            add(CURTAIN, p[0], p[1])
     elif code == 0x1646 and len(p) >= 8:
         add(SENSOR, None, {"temperature": p[1] - 20, "illuminance": _u16(p[2], p[3]), "motion": p[4] == 1,
                            "dry_contact_1": p[6] == 1, "dry_contact_2": p[7] == 1})

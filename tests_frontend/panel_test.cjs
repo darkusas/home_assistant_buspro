@@ -19,6 +19,7 @@ function installMockHass() {
     "1.42": [{ kind: "floor_heating", number: null, value: { temperature: 22, status: 1, mode: 3, normal: 24, day: 21,
       night: 19, away: 18 } }],
     "1.40": [{ kind: "curtain", number: 1, value: 0 }],
+    "1.18": [{ kind: "curtain", number: 1, value: 0 }, { kind: "curtain_position", number: 1, value: 40 }],
     "1.204": [
       { kind: "heating_zone", number: 1, value: { on: true, mode: 1, timer: 0, temperature: 21, valve: false, normal: 21,
         day: 21, night: 20, away: 14, target: 21 } },
@@ -44,6 +45,9 @@ function installMockHass() {
           { number: 2, kind: "dimmer", name: null, level: 0, entity: null }] },
       { address: "1.40", type_code: "0x02CF", category: "curtain_module", remark: "Užuolaidos", mac: null,
         functions: [[2, 2, 1]], channels: [feature("curtain", 1, "curtain", 1, "Langas A")] },
+      // A curtain motor that reported its position (level) in the scan.
+      { address: "1.18", type_code: "0x25E4", category: "curtain_module", remark: "Svetainės užuolaida", mac: null,
+        functions: [[2, 0, 1]], channels: [{ ...feature("curtain", 1, "curtain", 1, "Svetainės užuolaida"), level: 40 }] },
       { address: "1.30", type_code: "0x0134", category: "sensor", remark: "12in1", mac: null, functions: null,
         channels: [feature("temperature", 1, "temperature"), feature("illuminance", 1, "illuminance"),
           feature("motion", 1, "motion"), feature("dry_contact", 1, "dry_contact_1"),
@@ -81,6 +85,12 @@ function installMockHass() {
       return { levels: updates.map((u) => u.value) };
     },
     "buspro/channel/test": (msg) => {
+      if (msg.target === "curtain" && msg.action === "level") {
+        setTimeout(() => emit(`state:${msg.address}`, { updates: [{ kind: "curtain_position", number: msg.channel,
+          value: msg.level }] }), 10);
+        return { confirmed: true, value: msg.level, kind: "curtain_position", confirmed_by: "0xE3E1", latency: 0.021,
+          error: null };
+      }
       if (msg.target === "curtain") {
         const status = { open: 1, close: 2, stop: 0 }[msg.action];
         setTimeout(() => emit(`state:${msg.address}`, { updates: [{ kind: "curtain", number: msg.channel, value: status }] }), 10);
@@ -207,7 +217,7 @@ async function main() {
   await panel.getByText("1.89 · Rėlės 1 aukštas").waitFor();
   assert.strictEqual(await panel.locator(".device").count(), 2);
   await panel.getByLabel("filter").selectOption("all");
-  assert.strictEqual(await panel.locator(".device").count(), 8);
+  assert.strictEqual(await panel.locator(".device").count(), 9);
 
   // Relay module: names from the device, live state, YAML channel locked.
   await panel.getByText("1.89 · Rėlės 1 aukštas").click();
@@ -283,6 +293,28 @@ async function main() {
   assert.deepStrictEqual(await lastAdd(), [{ kind: "curtain", platform: "cover", channel: 1, name: "Langas A",
     opening_time: 35, address: "1.40", device_name: "Užuolaidos", device_model: "0x02CF",
     device_category: "curtain_module", mac: null }]);
+
+  // Curtain motor that knows its position: controlled by position, no opening time needed.
+  await panel.getByText("1.18 · Svetainės užuolaida").click();
+  await panel.locator("td.state").getByText("Stop · 40 %").waitFor();
+  assert.ok(await panel.getByLabel("position control").isChecked());
+  assert.strictEqual(await panel.getByLabel("opening time").count(), 0);
+  await panel.getByLabel("position control").uncheck();  // time-based instead: asks for the opening time
+  await panel.getByLabel("opening time").waitFor();
+  await panel.getByLabel("position control").check();
+  await panel.getByLabel("position 1").fill("70");
+  await panel.getByRole("button", { name: "Į padėtį" }).click();
+  await panel.getByText("✔ 70 % · 0xE3E1 · 21 ms").waitFor();
+  await panel.locator("td.state").getByText("Stop · 70 %").waitFor();
+  const positionTest = (await calls("buspro/channel/test")).pop();
+  assert.deepStrictEqual([positionTest.target, positionTest.action, positionTest.level], ["curtain", "level", 70]);
+  await panel.getByLabel("select curtain").check();
+  await panel.getByRole("button", { name: "Pridėti pasirinktus (1)" }).click();
+  await panel.getByText("cover.svetaines_uzuolaida").waitFor();
+  assert.deepStrictEqual(await lastAdd(), [{ kind: "curtain", platform: "cover", channel: 1, name: "Svetainės užuolaida",
+    position: true, address: "1.18", device_name: "Svetainės užuolaida", device_model: "0x25E4",
+    device_category: "curtain_module", mac: null }]);
+  await shot("10-curtain-position");
 
   // 12-in-1 sensor: live readings, then add temperature and motion.
   await panel.getByText("1.30 · 12in1").click();

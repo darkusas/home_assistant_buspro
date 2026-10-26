@@ -7,7 +7,9 @@ Setup Tool 2 (docs/protocol-captures/2026-10-25-analysis.md):
    several rounds, since one round reaches only ~87% of devices. Everything heard on
    the bus meanwhile is recorded too, so devices that ignore both are still found.
 2. Identify: ask devices still missing a name or self-description directly.
-   Floor heating modules are asked for their 1-wire floor sensors (0x1D12, 0x1D16).
+   Floor heating modules are asked for their 1-wire floor sensors (0x1D12, 0x1D16), and
+   curtain modules for each curtain's position (0xE3E2 [curtain + 16]), which only curtains
+   that go to a percentage themselves answer.
 3. Channels: ReadStatusOfChannels (0x0033) sent to each possible output module; many
    modules ignore it as a broadcast.
 4. MAC: ReadMacAddress (0xF003), a stable id that survives address changes.
@@ -23,12 +25,13 @@ from dataclasses import dataclass
 
 from ..buspro import BROADCAST_ADDRESS
 from ..devices.floor_heating_module import parse_floor_sensor, parse_floor_sensor_count, parse_zone_name
+from ..devices.position_cover import POSITION_OFFSET, parse_curtain_position
 from ..helpers.enums import OperateCode
 from .models import ScannedDevice, ScanResult
 from .module_reply import MAX_EXCLUDED_DEVICES, build_module_read_payload, parse_module_reply
 from .remarks import parse_channel_remark, parse_device_remark
-from .type_codes import (FLOOR_HEATING, GATEWAY, LOGIC, NO_MODULE_REPLY_TYPES, OUTPUT_MODULE, SENSOR, SOFTWARE,
-                         UNKNOWN)
+from .type_codes import (CURTAIN_MODULE, FLOOR_HEATING, GATEWAY, LOGIC, NO_MODULE_REPLY_TYPES, OUTPUT_MODULE,
+                         SENSOR, SOFTWARE, UNKNOWN)
 
 # How to ask a sensor for its readings; others are asked with ReadSensorStatus (0x1645).
 _SENSOR_READS = {
@@ -144,6 +147,10 @@ class BusScanner:
                 device.channel_names[parsed[0]] = parsed[1]
         elif code == _READ_MAC_RESPONSE and len(payload) >= 8:
             device.mac = ":".join(f"{b:02X}" for b in payload[:8])
+        elif code in (0xE3E1, 0xE3E3):
+            position = parse_curtain_position(payload)
+            if position is not None:
+                device.curtain_positions[position[0]] = position[1]
         elif code == 0x1D03:
             parsed = parse_zone_name(payload)
             if parsed is not None:
@@ -183,7 +190,7 @@ class BusScanner:
 
     async def _identify(self, options):
         targets = [d for d in self._targets() if d.remark is None or d.functions is None or d.may_have_floor_heating
-                   or (d.category == SENSOR and not d.features()) or d.category == FLOOR_HEATING]
+                   or (d.category == SENSOR and not d.features()) or d.category in (FLOOR_HEATING, CURTAIN_MODULE)]
         for done, device in enumerate(targets):
             self._report("identify", len(self._devices), done, len(targets))
             if device.functions is None and device.type_code not in NO_MODULE_REPLY_TYPES:
@@ -202,6 +209,16 @@ class BusScanner:
                                     OperateCode.ReadFloorHeatingStatusResponse, retries=0)
             if device.category == FLOOR_HEATING:
                 await self._read_floor_sensors(options, device)
+            if device.category == CURTAIN_MODULE:
+                await self._read_curtain_positions(options, device)
+
+    async def _read_curtain_positions(self, options, device):
+        for curtain in range(1, device.curtain_count + 1):
+            if curtain not in device.curtain_positions:
+                number = curtain + POSITION_OFFSET
+                await self._request(options, device, OperateCode.CurtainSwitchStatus, [number],
+                                    OperateCode.CurtainSwitchStatusResponse,
+                                    match=lambda telegram, number=number: telegram.payload[:1] == [number], retries=0)
 
     async def _read_floor_sensors(self, options, device):
         if device.floor_sensor_count is None:

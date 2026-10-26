@@ -36,6 +36,8 @@ const STRINGS = {
       floor_heating: "Grindų šildymas", heating_zone: "Šildymo zona", floor_sensor: "Grindų termometras" },
     feature: "Funkcija",
     openingTime: "Atidarymo laikas, s",
+    positionControl: "Padėtis procentais (užuolaida pati žino padėtį)",
+    goTo: "Į padėtį",
     motionYes: "Judesys", motionNo: "Nėra",
     curtainStatus: { 0: "Stop", 1: "Atidaroma", 2: "Uždaroma" },
     heatingOn: "Šildo", heatingOff: "Išjungta",
@@ -128,6 +130,8 @@ const STRINGS = {
       floor_heating: "Floor heating", heating_zone: "Heating zone", floor_sensor: "Floor sensor" },
     feature: "Feature",
     openingTime: "Opening time, s",
+    positionControl: "Position in % (the curtain knows its position)",
+    goTo: "Go to",
     motionYes: "Motion", motionNo: "Clear",
     curtainStatus: { 0: "Stopped", 1: "Opening", 2: "Closing" },
     heatingOn: "Heating", heatingOff: "Off",
@@ -347,6 +351,7 @@ class BusproPanel extends HTMLElement {
     this._liveZones = {}; // floor heating module: zone -> status
     this._liveFloor = {}; // floor heating module: floor sensor -> °C
     this._liveCurtain = {}; // curtain -> status
+    this._liveCurtainPosition = {}; // curtain -> % (curtains that know their position)
     this._liveUniversal = {}; // switch -> bool
     this._featureCells = {};
     this._universalCells = {};
@@ -473,6 +478,7 @@ class BusproPanel extends HTMLElement {
       else if (update.kind === "sensor") Object.assign(this._liveSensor, update.value);
       else if (update.kind === "floor_heating") Object.assign(this._liveHeating, update.value);
       else if (update.kind === "curtain") this._liveCurtain[update.number] = update.value;
+      else if (update.kind === "curtain_position") this._liveCurtainPosition[update.number] = update.value;
       else if (update.kind === "heating_zone") this._liveZones[update.number] = update.value;
       else if (update.kind === "floor_sensor") this._liveFloor[update.number] = update.value;
       else if (update.kind === "universal_switch") this._liveUniversal[update.number] = update.value;
@@ -534,6 +540,7 @@ class BusproPanel extends HTMLElement {
     if (result.kind === "output") value = `${result.value} %`;
     else if (result.kind === "universal_switch") value = result.value ? t.stateOn : t.stateOff;
     else if (result.kind === "curtain") value = t.curtainStatus[result.value] || result.value;
+    else if (result.kind === "curtain_position") value = `${result.value} %`;
     else if (result.kind === "heating_zone") {
       // On/off answers 1 or 0, a setpoint its temperature (5-35 °C).
       value = result.value === null ? null : (result.value <= 1 ? (result.value ? t.stateOn : t.stateOff) : `${result.value} °C`);
@@ -914,7 +921,9 @@ class BusproPanel extends HTMLElement {
       } else if (channel.entity_kind === "floor_sensor") {
         name = channel.name || `${device.remark || device.address} ${t.floorSensorName} ${channel.number}`;
       }
-      this._edits[key] = { checked: false, name, openingTime: 20 };
+      // A curtain that reported a position in the scan is controlled by position.
+      const position = channel.kind === "curtain" && channel.level !== null && channel.level !== undefined;
+      this._edits[key] = { checked: false, name, openingTime: 20, position };
     }
     return this._edits[key];
   }
@@ -963,6 +972,7 @@ class BusproPanel extends HTMLElement {
     if (channel.kind === "curtain") {
       tests = el("div", { class: "tests" }, ["open", "stop", "close"].map((action) =>
         el("button", { class: "small", onclick: () => this._test(device, channel, "curtain", action), text: t[action] })));
+      if (kind && this._featureEdit(device, channel).position) tests.append(...this._positionTest(device, channel));
     } else if (channel.kind === "heating_zone") {
       tests = this._zoneTests(device, channel);
     }
@@ -987,10 +997,16 @@ class BusproPanel extends HTMLElement {
     const platform = FEATURE_PLATFORMS[kind] || "binary_sensor";
     const typeCell = el("td", { class: "type" }, [el("div", { class: "muted", text: t.platforms[platform] })]);
     if (kind === "curtain" && !entity) {
-      typeCell.append(el("label", { class: "note" }, [`${t.openingTime} `, el("input", {
-        type: "number", min: "1", max: "600", value: String(edit.openingTime), "aria-label": "opening time",
-        oninput: (e) => { edit.openingTime = Number(e.target.value) || 20; },
-      })]));
+      typeCell.append(el("label", { class: "check note" }, [el("input", {
+        type: "checkbox", checked: edit.position, "aria-label": "position control",
+        onchange: (e) => { edit.position = e.target.checked; this._render(); },
+      }), t.positionControl]));
+      if (!edit.position) {
+        typeCell.append(el("label", { class: "note" }, [`${t.openingTime} `, el("input", {
+          type: "number", min: "1", max: "600", value: String(edit.openingTime), "aria-label": "opening time",
+          oninput: (e) => { edit.openingTime = Number(e.target.value) || 20; },
+        })]));
+      }
     }
     const row = el("tr", {}, [
       el("td", { class: "check" }, checkbox),
@@ -1015,6 +1031,18 @@ class BusproPanel extends HTMLElement {
     }
     return channel.entity_kind ? t.features[channel.entity_kind]
       : `${t.kinds[channel.kind] || channel.kind} ${channel.number}`;
+  }
+
+  _positionTest(device, channel) {
+    const known = this._liveCurtainPosition[channel.number];
+    const input = el("input", {
+      type: "number", min: "0", max: "100", class: "setpoint", "aria-label": `position ${channel.number}`,
+      value: String(known === undefined ? (channel.level === null || channel.level === undefined ? 50 : channel.level) : known),
+    });
+    return [input, el("button", {
+      class: "small", text: this.t.goTo,
+      onclick: () => this._test(device, channel, "curtain", "level", Number(input.value)),
+    })];
   }
 
   _zoneTests(device, channel) {
@@ -1061,7 +1089,11 @@ class BusproPanel extends HTMLElement {
       }
       case "curtain": {
         const status = this._liveCurtain[channel.number];
-        return status === undefined ? null : (t.curtainStatus[status] || String(status));
+        const position = this._liveCurtainPosition[channel.number];
+        const parts = [];
+        if (status !== undefined) parts.push(t.curtainStatus[status] || String(status));
+        if (position !== undefined) parts.push(`${position} %`);
+        return parts.length ? parts.join(" · ") : null;
       }
       case "heating_zone": {
         const z = this._liveZones[channel.number];
@@ -1176,7 +1208,8 @@ class BusproPanel extends HTMLElement {
       const kind = channel.entity_kind;
       const platform = FEATURE_PLATFORMS[kind] || "binary_sensor";
       const item = { kind, platform, channel: channel.entity_number, name: edit.name.trim() || this.t.features[kind] };
-      if (kind === "curtain") item.opening_time = edit.openingTime;
+      if (kind === "curtain" && edit.position) item.position = true;
+      else if (kind === "curtain") item.opening_time = edit.openingTime;
       entities.push(item);
     }
     await this._addEntities(device, entities);
