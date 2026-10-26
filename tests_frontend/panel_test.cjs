@@ -345,6 +345,8 @@ async function main() {
   await panel.getByLabel("universal switch number").fill("100");
   await panel.locator("details.universal").getByRole("button", { name: "ĮJ" }).click();
   await panel.getByText("✔ Įjungta · 0xE01D · 21 ms").waitFor();
+  await page.evaluate(() => document.querySelector("buspro-panel")._render());  // e.g. the reload after adding
+  await panel.getByText("✔ Įjungta · 0xE01D · 21 ms").waitFor({ timeout: 1000 });
   const universalTest = (await calls("buspro/channel/test")).pop();
   assert.deepStrictEqual([universalTest.target, universalTest.action, universalTest.channel],
     ["universal_switch", "on", 100]);
@@ -425,7 +427,13 @@ async function main() {
   await page.setViewportSize({ width: 390, height: 844 });
   await shot("5-phone");
   // On a phone every channel is a card, so its test buttons are on screen.
-  const box = await row(4).getByRole("button", { name: "Impulsas" }).boundingBox();
+  // boundingBox() is null if the panel re-renders while it is measured, so measure again.
+  const pulse = row(4).getByRole("button", { name: "Impulsas" });
+  let box = null;
+  for (let attempt = 0; attempt < 10 && !box; attempt += 1) {
+    await pulse.waitFor();
+    box = await pulse.boundingBox();
+  }
   assert.ok(box.x + box.width <= 390, `test button is off screen at x=${box.x}`);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   assert.ok(overflow <= 0, `page scrolls sideways by ${overflow}px on a phone`);

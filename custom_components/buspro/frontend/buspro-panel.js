@@ -1140,6 +1140,7 @@ class BusproPanel extends HTMLElement {
     const resultKey = `${device.address}:universal_switch:input`;
     const resultNode = el("div", { class: "result" });
     this._resultCells[resultKey] = resultNode;
+    this._renderResult(resultKey);  // a test result stays visible when the panel re-renders
     const numberInput = el("input", {
       type: "number", min: "1", max: "255", value: state.number, "aria-label": "universal switch number",
       oninput: (e) => { state.number = e.target.value; },
