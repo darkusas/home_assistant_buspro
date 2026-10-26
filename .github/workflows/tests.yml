@@ -32,13 +32,16 @@ jobs:
       - run: pytest tests_ha
 
   panel:
-    name: Panel in Chromium
+    name: Panel in Chrome
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
-      - run: npm install --no-save playwright@1.48.2
-      - run: npx playwright install --with-deps chromium
+      # The runner image has Google Chrome, so no browser download (playwright install
+      # --with-deps took up to 9 minutes when the package mirrors were slow).
+      - run: npm install --no-save playwright@1.64.0
       - run: node tests_frontend/panel_test.cjs
+        env:
+          PANEL_TEST_CHANNEL: chrome

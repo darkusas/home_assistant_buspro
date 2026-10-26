@@ -359,7 +359,7 @@ Fixed current status getting updated on HA
 ```
 pip install -r requirements_test.txt && pytest                          # pybuspro library, no Home Assistant needed
 pip install -r requirements_test_ha.txt && pytest tests_ha              # Home Assistant integration
-node tests_frontend/panel_test.cjs [screenshot directory]               # panel in Chromium (Playwright)
+node tests_frontend/panel_test.cjs [screenshot directory]               # panel in Chromium (Playwright); PANEL_TEST_CHANNEL=chrome uses Google Chrome
 ```
 GitHub Actions run these three (`.github/workflows/tests.yml`) and the HACS and hassfest validation (`.github/workflows/validate.yml`).
 

@@ -1,5 +1,6 @@
 // Browser test of the HDL Buspro panel against a simulated Home Assistant WebSocket API.
 // Run: node tests_frontend/panel_test.cjs [screenshot directory]
+// With PANEL_TEST_CHANNEL=chrome it uses the installed Google Chrome instead of Playwright's Chromium (CI).
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
@@ -184,7 +185,8 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8">
 <body style="margin:0"><script type="module" src="/buspro-panel.js"></script><buspro-panel></buspro-panel></body></html>`;
 
 async function main() {
-  const browser = await chromium.launch();
+  const channel = process.env.PANEL_TEST_CHANNEL;
+  const browser = await chromium.launch(channel ? { channel } : {});
   const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
   const errors = [];
   page.on("pageerror", (err) => errors.push(err.message));
@@ -303,6 +305,7 @@ async function main() {
   await panel.getByLabel("opening time").waitFor();
   await panel.getByLabel("position control").check();
   await panel.getByLabel("position 1").fill("70");
+  await page.evaluate(() => document.querySelector("buspro-panel")._render());
   await panel.getByRole("button", { name: "Į padėtį" }).click();
   await panel.getByText("✔ 70 % · 0xE3E1 · 21 ms").waitFor();
   await panel.locator("td.state").getByText("Stop · 70 %").waitFor();
@@ -365,6 +368,8 @@ async function main() {
   await zoneRow(3).getByRole("button", { name: "IŠJ" }).click();
   await zoneRow(3).getByText("✔ Išjungta · 0x1C5D · 21 ms").waitFor();
   await panel.getByLabel("setpoint 3").fill("21");
+  // Typed values survive a re-render, like the reload that follows adding entities.
+  await page.evaluate(() => document.querySelector("buspro-panel")._render());
   await zoneRow(3).getByRole("button", { name: "Nustatyti" }).click();
   await zoneRow(3).getByText("✔ 21 °C · 0x1C5D · 21 ms").waitFor();
   assert.deepStrictEqual((await calls("buspro/channel/test")).slice(-2).map((m) => [m.target, m.channel, m.action, m.level]),

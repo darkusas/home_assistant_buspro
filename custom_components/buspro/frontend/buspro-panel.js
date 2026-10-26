@@ -335,6 +335,7 @@ class BusproPanel extends HTMLElement {
     this._selected = null;
     this._edits = {}; // "subnet.device.channel" -> {checked, name, type}
     this._results = {}; // "address:target:number" -> test result text
+    this._testValues = {}; // "address:target:number" -> typed setpoint or position, kept across re-renders
     this._live = {}; // channel number -> level, for the selected device
     this._liveCells = {};
     this._resetLive();
@@ -1034,10 +1035,12 @@ class BusproPanel extends HTMLElement {
   }
 
   _positionTest(device, channel) {
+    const key = `${device.address}:curtain_position:${channel.number}`;
     const known = this._liveCurtainPosition[channel.number];
+    const fallback = known === undefined ? (channel.level === null || channel.level === undefined ? 50 : channel.level) : known;
     const input = el("input", {
       type: "number", min: "0", max: "100", class: "setpoint", "aria-label": `position ${channel.number}`,
-      value: String(known === undefined ? (channel.level === null || channel.level === undefined ? 50 : channel.level) : known),
+      value: String(this._testValues[key] ?? fallback), oninput: (e) => { this._testValues[key] = e.target.value; },
     });
     return [input, el("button", {
       class: "small", text: this.t.goTo,
@@ -1047,10 +1050,12 @@ class BusproPanel extends HTMLElement {
 
   _zoneTests(device, channel) {
     const t = this.t;
+    const key = `${device.address}:heating_zone:${channel.number}`;
     const zone = this._liveZones[channel.number];
     const setpoint = el("input", {
-      type: "number", min: "5", max: "35", value: zone && zone.target ? String(zone.target) : "21",
+      type: "number", min: "5", max: "35", value: String(this._testValues[key] ?? (zone && zone.target ? zone.target : 21)),
       class: "setpoint", "aria-label": `setpoint ${channel.number}`,
+      oninput: (e) => { this._testValues[key] = e.target.value; },
     });
     return el("div", { class: "tests" }, [
       el("button", { class: "small", onclick: () => this._test(device, channel, "heating_zone", "on"), text: t.on }),
