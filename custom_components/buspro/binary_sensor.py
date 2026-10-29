@@ -30,6 +30,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from ..buspro import DATA_BUSPRO
 from .address_validation import validate_buspro_address_str
 from .const import SIGNAL_ENTITIES_ADDED
+from .entity_helpers import entity_id_changing
 from .storage import device_info
 
 _LOGGER = logging.getLogger(__name__)
@@ -257,7 +258,8 @@ class BusproBinarySensor(BinarySensorEntity):
 
     async def async_will_remove_from_hass(self):
         """Stop listening to the bus when the entity is removed."""
-        self._device.close()
+        if not entity_id_changing(self):
+            self._device.close()
 
     @property
     def should_poll(self):
