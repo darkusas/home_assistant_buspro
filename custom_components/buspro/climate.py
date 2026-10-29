@@ -32,6 +32,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 # from homeassistant.helpers.entity import Entity
 from ..buspro import DATA_BUSPRO
 from .const import SIGNAL_ENTITIES_ADDED
+from .entity_helpers import entity_id_changing
 from .storage import device_info
 # noinspection PyUnresolvedReferences
 from .pybuspro.devices.climate import ControlPanelAC
@@ -389,11 +390,13 @@ class BusproFloorHeating(ClimateEntity):
             self.async_write_ha_state()
 
         self._device.register_device_updated_cb(updated)
+        self.async_on_remove(lambda: self._device.unregister_device_updated_cb(updated))
         self.async_on_remove(event.async_track_time_interval(self.hass, self._async_poll, FLOOR_HEATING_POLL_INTERVAL))
         await self._device.read_status()
 
     async def async_will_remove_from_hass(self):
-        self._device.close()
+        if not entity_id_changing(self):
+            self._device.close()
 
     async def _async_poll(self, _now=None):
         await self._device.read_status()

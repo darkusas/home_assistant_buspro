@@ -18,6 +18,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from ..buspro import DATA_BUSPRO
 from .const import SIGNAL_ENTITIES_ADDED
+from .entity_helpers import entity_id_changing
 from .storage import device_info
 from datetime import timedelta
 import homeassistant.helpers.event as event
@@ -110,7 +111,8 @@ class BusproCover(CoverEntity):
 
     async def async_will_remove_from_hass(self):
         """Stop listening to the bus when the entity is removed."""
-        self._device.close()
+        if not entity_id_changing(self):
+            self._device.close()
 
     @callback
     def async_register_callbacks(self):
@@ -249,13 +251,15 @@ class BusproPositionCover(CoverEntity):
             self.async_write_ha_state()
 
         self._device.register_device_updated_cb(updated)
+        self.async_on_remove(lambda: self._device.unregister_device_updated_cb(updated))
         self.async_on_remove(event.async_track_time_interval(self.hass, self._async_poll, POSITION_POLL_INTERVAL))
         await self._device.read_position()
 
     async def async_will_remove_from_hass(self):
         if self._follow_task is not None:
             self._follow_task.cancel()
-        self._device.close()
+        if not entity_id_changing(self):
+            self._device.close()
 
     async def _async_poll(self, _now=None):
         await self._device.read_position()
